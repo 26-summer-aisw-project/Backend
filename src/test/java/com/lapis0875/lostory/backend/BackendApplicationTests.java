@@ -1,12 +1,14 @@
 package com.lapis0875.lostory.backend;
 
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.web.client.TestRestTemplate;
+import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.context.annotation.Import;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
 import org.springframework.test.context.ActiveProfiles;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -16,19 +18,22 @@ import static org.assertj.core.api.Assertions.assertThat;
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class BackendApplicationTests {
 
-	@Autowired
-	private TestRestTemplate restTemplate;
+	@LocalServerPort
+	private int port;
 
 	@Test
 	void contextLoads() {
 	}
 
 	@Test
-	void actuatorHealthIsPublic() {
-		ResponseEntity<String> response = restTemplate.getForEntity("/actuator/health", String.class);
+	void actuatorHealthIsPublic() throws Exception {
+		HttpRequest request = HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/actuator/health"))
+			.GET()
+			.build();
+		HttpResponse<String> response = HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofString());
 
-		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
-		assertThat(response.getBody()).contains("\"status\":\"UP\"");
+		assertThat(response.statusCode()).isEqualTo(200);
+		assertThat(response.body()).contains("\"status\":\"UP\"");
 	}
 
 }
