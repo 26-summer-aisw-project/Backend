@@ -18,6 +18,13 @@ public class SecurityConfig {
 		http.csrf(AbstractHttpConfigurer::disable)
 			.authorizeHttpRequests((requests) -> requests
 				.requestMatchers(EndpointRequest.to(HealthEndpoint.class)).permitAll()
+				.requestMatchers(
+					"/swagger-ui.html",
+					"/swagger-ui/**",
+					"/v3/api-docs",
+					"/v3/api-docs/**",
+					"/v3/api-docs.yaml")
+				.permitAll()
 				.anyRequest().authenticated())
 			.httpBasic(AbstractHttpConfigurer::disable)
 			.formLogin(AbstractHttpConfigurer::disable)
