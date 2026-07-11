@@ -7,7 +7,7 @@ public class LostoryException extends RuntimeException {
 	private final ErrorCode errorCode;
 
 	public LostoryException(ErrorCode errorCode) {
-		this(errorCode, errorCode.getDefaultMessage());
+		this(Objects.requireNonNull(errorCode, "errorCode must not be null"), errorCode.getDefaultMessage());
 	}
 
 	public LostoryException(ErrorCode errorCode, String message) {
