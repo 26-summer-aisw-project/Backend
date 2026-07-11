@@ -41,7 +41,7 @@ public record ErrorResponse(
 
 	public ErrorResponse(ErrorCode errorCode, String message, List<FieldError> fieldErrors) {
 		this(
-			Objects.requireNonNull(errorCode, "errorCode must not be null").name(),
+			Objects.requireNonNull(errorCode, "errorCode must not be null").getCode(),
 			message,
 			Objects.requireNonNull(fieldErrors, "fieldErrors must not be null").stream()
 				.map(FieldErrorDetail::from)
