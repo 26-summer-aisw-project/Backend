@@ -1,2 +1,2 @@
 # Backend
-Backend project of {our-project-name}
+Backend project of {LOSTORY}
