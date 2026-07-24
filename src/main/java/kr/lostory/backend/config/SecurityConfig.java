@@ -1,4 +1,4 @@
-package com.lapis0875.lostory.backend.config;
+package kr.lostory.backend.config;
 
 import org.springframework.boot.health.actuate.endpoint.HealthEndpoint;
 import org.springframework.boot.security.autoconfigure.actuate.web.servlet.EndpointRequest;

@@ -1,6 +1,6 @@
-package com.lapis0875.lostory.backend.common.exception;
+package kr.lostory.backend.common.exception;
 
-import com.lapis0875.lostory.backend.common.response.ErrorResponse;
+import kr.lostory.backend.common.response.ErrorResponse;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
