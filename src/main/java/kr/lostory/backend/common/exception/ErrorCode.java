@@ -1,4 +1,4 @@
-package com.lapis0875.lostory.backend.common.exception;
+package kr.lostory.backend.common.exception;
 
 public enum ErrorCode {
 

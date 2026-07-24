@@ -1,7 +1,7 @@
-package com.lapis0875.lostory.backend.common.response;
+package kr.lostory.backend.common.response;
 
-import com.lapis0875.lostory.backend.common.exception.ErrorCode;
-import com.lapis0875.lostory.backend.common.exception.LostoryException;
+import kr.lostory.backend.common.exception.ErrorCode;
+import kr.lostory.backend.common.exception.LostoryException;
 import java.time.Instant;
 import java.util.List;
 import java.util.Objects;

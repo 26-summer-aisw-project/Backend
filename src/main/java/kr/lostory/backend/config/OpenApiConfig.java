@@ -1,4 +1,4 @@
-package com.lapis0875.lostory.backend.config;
+package kr.lostory.backend.config;
 
 import io.swagger.v3.oas.models.OpenAPI;
 import io.swagger.v3.oas.models.info.Info;
