@@ -5,8 +5,8 @@ from collections import Counter
 from pathlib import Path
 
 
-ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_CSV = ROOT / "data" / "list_school" / "lost_centers_master.csv"
+DATA_DIR = Path(__file__).resolve().parents[1]
+DEFAULT_CSV = DATA_DIR / "lost_centers_master.csv"
 
 REQUIRED_COLUMNS = [
     "center_id",
