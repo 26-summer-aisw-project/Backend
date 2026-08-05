@@ -1,0 +1,6 @@
+university_id,name,address,lat,lng,homepage,main_phone,source_url,collection_status,notes
+ssu,숭실대학교,서울특별시 동작구 상도로 369,,,,,,seed,파일럿 대학
+yonsei,연세대학교,서울특별시 서대문구 연세로 50,,,,,,seed,파일럿 대학
+korea,고려대학교,서울특별시 성북구 안암로 145,,,,,,seed,파일럿 대학
+hanyang,한양대학교,서울특별시 성동구 왕십리로 222,,,,,,seed,파일럿 대학
+hongik,홍익대학교,서울특별시 마포구 와우산로 94,,,,,,seed,파일럿 대학

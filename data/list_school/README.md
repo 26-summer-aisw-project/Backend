@@ -1,0 +1,61 @@
+# Seoul University Lost-Item Center Data
+
+This folder stores reusable LOSTORY lost-item center data for Seoul university areas.
+
+## Files
+
+- `universities_seoul_seed.csv`: seed universities to collect first.
+- `center_candidates_raw.csv`: raw Kakao/local-search candidates. Do not expose directly.
+- `center_candidates_review.csv`: scored candidates awaiting manual review.
+- `lost_centers_master.csv`: service-facing curated master data.
+
+## Collection Principle
+
+Use an official-source-first workflow.
+
+1. Find the university's official lost/found, student support, one-stop center, or organization page.
+2. Confirm whether the page explicitly says the office receives, stores, announces, or returns lost items.
+3. Use Kakao Local only to supplement address, coordinates, and map URL after the official office is identified.
+4. Do not promote keyword-search results directly to service data. False positives include disability support centers, restaurants, catering stores, generic buildings, and nearby police stations.
+5. Keep uncertain but useful offices as `candidate_needs_call`, not `primary`.
+
+## Required Fields
+
+The service-facing master data should include center name, parent place, phone number, address, coordinates, role, type, detail location, source URL, verification status, confidence score, and notes.
+
+## Current Snapshot
+
+- `lost_centers_master.csv`: 48 rows.
+- Covered parent places: 38 universities or campus-level institutions.
+- Strong service-ready rows: `primary + official_verified`.
+- Review-needed rows: `candidate_needs_call + needs_phone_verification`.
+- Public fallback rows are useful for guidance, but they are not university lost-item centers.
+
+## Center Roles
+
+- `primary`: campus-wide representative lost-item office verified from an official source.
+- `online_board`: official lost/found board when the board is useful but physical handoff details are limited.
+- `official_local`: verified local handoff point inside a campus, such as a specific college or library.
+- `candidate_needs_call`: useful official clue, but current location, phone, or process must be confirmed before primary exposure.
+- `public_fallback`: nearby public fallback such as police box, police station, or subway lost-and-found center. Not a university lost-item center.
+- `user_submitted`: place entered by a user and not yet verified.
+- `partner`: center using the LOSTORY dashboard.
+
+## Service Display Policy
+
+- Show `primary + official_verified` as the main campus lost-item center.
+- Show `online_board + official_board_verified` as an official board, not as a guaranteed physical handoff office.
+- Hide or down-rank `candidate_needs_call` until phone verification is complete.
+- Show `public_fallback` only under a separate public fallback section.
+- Never show `center_candidates_raw.csv` directly to users.
+
+## Verification Status
+
+- `official_verified`: office and lost-item role are confirmed from an official university page.
+- `official_board_verified`: official board confirmed, but may not be a full physical center.
+- `official_local_verified`: specific campus handoff place confirmed from an official source.
+- `needs_phone_verification`: official clue exists, but phone/current process must be checked before strong exposure.
+- `fallback_candidate`: public fallback candidate, not a campus center.
+- `auto_collected`: collected automatically, not visible to users.
+- `needs_review`: needs human review, not visible to users.
+- `inactive`: uncertain or no longer usable.
