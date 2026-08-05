@@ -14,6 +14,8 @@ git clone https://github.com/26-summer-aisw-project/Backend.git
 cd Backend
 ```
 
+Lost-center collection data and scripts are in `list_school/data`.
+
 ## Local Test
 테스트를 실행하기 전에 Docker Desktop을 실행시킵니다.
 왜냐하면, TestContainers를 사용해 테스트용 PostgreSQL 컨테이너를 실행하기에 DOcker가 실행중이지 않으면 실패할 수 있습니다.
