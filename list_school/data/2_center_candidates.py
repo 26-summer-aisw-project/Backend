@@ -10,8 +10,8 @@ from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 
-ROOT = Path(__file__).resolve().parents[3]
-DATA_DIR = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
+DATA_DIR = Path(__file__).resolve().parent
 INPUT = DATA_DIR / "universities_seoul_seed.csv"
 OUTPUT = DATA_DIR / "center_candidates_raw.csv"
 
