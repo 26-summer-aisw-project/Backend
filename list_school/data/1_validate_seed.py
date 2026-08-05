@@ -4,7 +4,7 @@ import csv
 from pathlib import Path
 
 
-DATA_DIR = Path(__file__).resolve().parents[1]
+DATA_DIR = Path(__file__).resolve().parent
 INPUT = DATA_DIR / "universities_seoul_seed.csv"
 
 REQUIRED_COLUMNS = [

@@ -13,6 +13,8 @@ Clone the repository.
 git clone https://github.com/26-summer-aisw-project/Backend.git
 cd Backend
 ```
+## Data
+분실물 센터 수집하는 코드, 실행파일, 결과물(csv파일)은 모두 'list_school/data'에 존재합니다.
 
 ## Local Test
 테스트를 실행하기 전에 Docker Desktop을 실행시킵니다.

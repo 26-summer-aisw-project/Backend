@@ -5,7 +5,7 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 
-DATA_DIR = Path(__file__).resolve().parents[1]
+DATA_DIR = Path(__file__).resolve().parent
 INPUT = DATA_DIR / "center_candidates_raw.csv"
 OUTPUT = DATA_DIR / "center_candidates_review.csv"
 

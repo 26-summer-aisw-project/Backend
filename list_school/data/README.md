@@ -7,7 +7,10 @@ This folder stores reusable LOSTORY lost-item center data for Seoul university a
 - `universities_seoul_seed.csv`: seed universities to collect first.
 - `lost_centers_master.csv`: service-facing curated master data.
 - `.env.example`: Kakao REST API key example for candidate collection.
-- `scripts/`: collection, scoring, and validation scripts.
+- `1_validate_seed.py`: validates seed university data.
+- `2_center_candidates.py`: collects raw candidates with Kakao Local API.
+- `3_score_candidates.py`: scores and classifies collected candidates.
+- `validate_lost_centers_master.py`: validates the curated master CSV.
 
 ## Generated Files
 
@@ -31,10 +34,10 @@ Use an official-source-first workflow.
 Run commands from the backend project root.
 
 ```powershell
-python .\data\list_school\scripts\1_validate_seed.py
-python .\data\list_school\scripts\2_center_candidates.py
-python .\data\list_school\scripts\3_score_candidates.py
-python .\data\list_school\scripts\validate_lost_centers_master.py
+python .\list_school\data\1_validate_seed.py
+python .\list_school\data\2_center_candidates.py
+python .\list_school\data\3_score_candidates.py
+python .\list_school\data\validate_lost_centers_master.py
 ```
 
 ## Required Fields
