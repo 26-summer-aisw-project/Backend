@@ -2,7 +2,7 @@
 
 문서 상태: Draft  
 작성일: 2026-08-08  
-기준: [현재 제품 기획서](../../Docs/LOSTORY_PRODUCT_PLAN.md), 현재 Backend 코드베이스, [ERD 명세](./diagram/erd-spec.json)
+기준: [현재 제품 기획서](./LOSTORY_PRODUCT_PLAN.md), 현재 Backend 코드베이스, [ERD 명세](./diagram/erd-spec.json)
 
 ## 1. 목표와 범위
 
