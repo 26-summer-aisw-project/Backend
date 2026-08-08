@@ -254,7 +254,7 @@ P0에서는 실제 현금 충전과 기프티콘 교환을 구현하지 않는�
 | API 문서·운영 | springdoc-openapi, Actuator | 기존 의존성 확인 | 계약 문서와 health check |
 | 테스트 | JUnit, Testcontainers PostgreSQL | 기존 의존성 확인 | Flyway·PostGIS·권한·포인트 멱등성 통합 테스트 |
 
-현재 `Backend/build.gradle`에는 Spring Web, Validation, Security, Data JPA, Flyway, PostgreSQL, Actuator, OpenAPI, Testcontainers가 포함되어 있다. 스키마 변경은 프로젝트 규칙에 따라 Flyway 마이그레이션으로만 반영한다.
+현재 `build.gradle`에는 Spring Web, Validation, Security, Data JPA, Flyway, PostgreSQL, Actuator, OpenAPI, Testcontainers가 포함되어 있다. 스키마 변경은 프로젝트 규칙에 따라 Flyway 마이그레이션으로만 반영한다.
 
 ### 6.2 구현 구조와 핵심 규칙
 
