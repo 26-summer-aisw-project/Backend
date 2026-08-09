@@ -4,6 +4,7 @@ import java.time.Instant;
 
 import kr.lostory.backend.config.JwtProperties;
 import kr.lostory.backend.user.domain.User;
+import lombok.RequiredArgsConstructor;
 import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
 import org.springframework.security.oauth2.jwt.JwtClaimsSet;
 import org.springframework.security.oauth2.jwt.JwtEncoder;
@@ -12,15 +13,11 @@ import org.springframework.security.oauth2.jwt.JwsHeader;
 import org.springframework.stereotype.Service;
 
 @Service
+@RequiredArgsConstructor
 public class JwtTokenService {
 
 	private final JwtEncoder jwtEncoder;
 	private final JwtProperties properties;
-
-	public JwtTokenService(JwtEncoder jwtEncoder, JwtProperties properties) {
-		this.jwtEncoder = jwtEncoder;
-		this.properties = properties;
-	}
 
 	public IssuedToken issue(User user) {
 		Instant issuedAt = Instant.now();

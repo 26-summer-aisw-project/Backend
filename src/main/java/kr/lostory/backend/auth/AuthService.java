@@ -8,23 +8,19 @@ import kr.lostory.backend.user.api.UserResponse;
 import kr.lostory.backend.user.domain.User;
 import kr.lostory.backend.user.domain.UserStatus;
 import kr.lostory.backend.user.repository.UserRepository;
+import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
+@RequiredArgsConstructor
 public class AuthService {
 
 	private final UserRepository userRepository;
 	private final PasswordEncoder passwordEncoder;
 	private final JwtTokenService tokenService;
-
-	public AuthService(UserRepository userRepository, PasswordEncoder passwordEncoder, JwtTokenService tokenService) {
-		this.userRepository = userRepository;
-		this.passwordEncoder = passwordEncoder;
-		this.tokenService = tokenService;
-	}
 
 	@Transactional
 	public UserResponse signup(AuthRequest request) {
