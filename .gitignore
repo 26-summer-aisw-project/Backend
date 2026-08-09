@@ -42,3 +42,6 @@ out/
 ### Generated lost-center collection outputs ###
 list_school/data/center_candidates_raw.csv
 list_school/data/center_candidates_review.csv
+
+### Agent Files ###
+.omo/

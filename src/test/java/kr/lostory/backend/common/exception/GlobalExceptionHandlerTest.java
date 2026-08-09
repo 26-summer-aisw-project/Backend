@@ -7,6 +7,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.BeanPropertyBindingResult;
 import org.springframework.validation.FieldError;
+import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.mock.http.MockHttpInputMessage;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -50,6 +52,40 @@ class GlobalExceptionHandlerTest {
         assertThat(response.getBody().fieldErrors().getFirst().field()).isEqualTo("title");
         assertThat(response.getBody().fieldErrors().getFirst().message()).isEqualTo("must not be blank");
         assertThat(response.getBody().timestamp()).isNotNull();
+    }
+
+    @Test
+    void handleMalformedJsonReturnsInvalidRequest() {
+        GlobalExceptionHandler handler = new GlobalExceptionHandler();
+        HttpMessageNotReadableException exception = new HttpMessageNotReadableException(
+                "Malformed JSON",
+                new MockHttpInputMessage(new byte[0])
+        );
+
+        ResponseEntity<ErrorResponse> response = handler.handleHttpMessageNotReadableException(exception);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(response.getBody()).isNotNull();
+        assertThat(response.getBody().code()).isEqualTo("COMMON-001");
+        assertThat(response.getBody().message()).isEqualTo("The request is invalid.");
+        assertThat(response.getBody().fieldErrors()).isEmpty();
+    }
+
+    @Test
+    void authenticationErrorsHaveStableContracts() {
+        assertErrorContract(ErrorCode.DUPLICATE_EMAIL, HttpStatus.CONFLICT, "AUTH-001", "An account with this email already exists.");
+        assertErrorContract(ErrorCode.INVALID_CREDENTIALS, HttpStatus.UNAUTHORIZED, "AUTH-002", "Invalid email or password.");
+        assertErrorContract(ErrorCode.INVALID_TOKEN, HttpStatus.UNAUTHORIZED, "AUTH-003", "The access token is invalid.");
+    }
+
+    private void assertErrorContract(ErrorCode errorCode, HttpStatus status, String code, String message) {
+        ResponseEntity<ErrorResponse> response = new GlobalExceptionHandler()
+                .handleLostoryException(new LostoryException(errorCode));
+
+        assertThat(response.getStatusCode()).isEqualTo(status);
+        assertThat(response.getBody()).isNotNull();
+        assertThat(response.getBody().code()).isEqualTo(code);
+        assertThat(response.getBody().message()).isEqualTo(message);
     }
 
     private void testMethod(TestRequest request) {
