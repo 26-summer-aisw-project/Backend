@@ -52,29 +52,48 @@ public class FoundItemService {
     }
 
     private void validateStorage(CreateFoundItemCommand command) {
-        if (command.storageMethod() == StorageMethod.MOVED_TO_SAFE_PLACE
-                && !StringUtils.hasText(command.storageDescription())) {
-            throw new LostoryException(
-                    ErrorCode.INVALID_REQUEST,
-                    "storageDescription is required when storageMethod is MOVED_TO_SAFE_PLACE."
-            );
+        if (command.storageMethod() == StorageMethod.LEFT_IN_PLACE) {
+            if (StringUtils.hasText(command.storageDescription())
+                    || StringUtils.hasText(command.handoverPlaceName())) {
+                throw new LostoryException(
+                        ErrorCode.INVALID_REQUEST,
+                        "storageDescription and handoverPlaceName must be empty when storageMethod is LEFT_IN_PLACE."
+                );
+            }
+            return;
         }
 
-        if (command.storageMethod() == StorageMethod.HANDED_TO_CENTER
-                && !StringUtils.hasText(command.handoverPlaceName())) {
-            throw new LostoryException(
-                    ErrorCode.INVALID_REQUEST,
-                    "handoverPlaceName is required when storageMethod is HANDED_TO_CENTER."
-            );
+        if (command.storageMethod() == StorageMethod.MOVED_TO_SAFE_PLACE) {
+            if (!StringUtils.hasText(command.storageDescription())) {
+                throw new LostoryException(
+                        ErrorCode.INVALID_REQUEST,
+                        "storageDescription is required when storageMethod is MOVED_TO_SAFE_PLACE."
+                );
+            }
+
+            if (StringUtils.hasText(command.handoverPlaceName())) {
+                throw new LostoryException(
+                        ErrorCode.INVALID_REQUEST,
+                        "handoverPlaceName must be empty when storageMethod is MOVED_TO_SAFE_PLACE."
+                );
+            }
+            return;
         }
 
-        if (command.storageMethod() == StorageMethod.LEFT_IN_PLACE
-                && (StringUtils.hasText(command.storageDescription())
-                || StringUtils.hasText(command.handoverPlaceName()))) {
-            throw new LostoryException(
-                    ErrorCode.INVALID_REQUEST,
-                    "storageDescription and handoverPlaceName must be empty when storageMethod is LEFT_IN_PLACE."
-            );
+        if (command.storageMethod() == StorageMethod.HANDED_TO_CENTER) {
+            if (StringUtils.hasText(command.storageDescription())) {
+                throw new LostoryException(
+                        ErrorCode.INVALID_REQUEST,
+                        "storageDescription must be empty when storageMethod is HANDED_TO_CENTER."
+                );
+            }
+
+            if (!StringUtils.hasText(command.handoverPlaceName())) {
+                throw new LostoryException(
+                        ErrorCode.INVALID_REQUEST,
+                        "handoverPlaceName is required when storageMethod is HANDED_TO_CENTER."
+                );
+            }
         }
     }
 }

@@ -19,6 +19,7 @@ public class FoundItem {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @Column(name = "finder_id", nullable = false)
     private Long finderId;
 
     @Column(nullable = false, length = 100)
@@ -33,6 +34,7 @@ public class FoundItem {
     @Column(nullable = false)
     private Instant foundAt;
 
+    // 텍스트로 위치를 받으나, 추후 PostGIS 좌표 기반 위치로 변경 예정
     @Column(nullable = false, length = 255)
     private String foundLocationText;
 
