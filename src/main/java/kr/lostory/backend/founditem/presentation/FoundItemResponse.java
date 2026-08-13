@@ -1,5 +1,6 @@
 package kr.lostory.backend.founditem.presentation;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import kr.lostory.backend.founditem.domain.FoundItem;
 import kr.lostory.backend.founditem.domain.FoundItemStatus;
@@ -12,7 +13,10 @@ public record FoundItemResponse(
         String category,
         String description,
         Instant foundAt,
-        String foundLocationText,
+        BigDecimal foundLatitude,
+        BigDecimal foundLongitude,
+        String foundAddress,
+        String foundLocationDetail,
         StorageMethod storageMethod,
         String storageDescription,
         String handoverPlaceName,
@@ -21,7 +25,6 @@ public record FoundItemResponse(
         Instant updatedAt,
         Instant expiredAt
 ) {
-
     public static FoundItemResponse from(FoundItem foundItem) {
         return new FoundItemResponse(
                 foundItem.getId(),
@@ -30,7 +33,10 @@ public record FoundItemResponse(
                 foundItem.getCategory(),
                 foundItem.getDescription(),
                 foundItem.getFoundAt(),
-                foundItem.getFoundLocationText(),
+                foundItem.getFoundLatitude(),
+                foundItem.getFoundLongitude(),
+                foundItem.getFoundAddress(),
+                foundItem.getFoundLocationDetail(),
                 foundItem.getStorageMethod(),
                 foundItem.getStorageDescription(),
                 foundItem.getHandoverPlaceName(),
