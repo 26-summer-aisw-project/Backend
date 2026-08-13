@@ -16,7 +16,9 @@ import kr.lostory.backend.founditem.presentation.FoundItemImageResponse;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
+import lombok.RequiredArgsConstructor;
 
+@RequiredArgsConstructor
 @Service
 public class FoundItemImageService {
 
@@ -31,14 +33,6 @@ public class FoundItemImageService {
 
     private final FoundItemRepository foundItemRepository;
     private final FoundItemImageRepository foundItemImageRepository;
-
-    public FoundItemImageService(
-            FoundItemRepository foundItemRepository,
-            FoundItemImageRepository foundItemImageRepository
-    ) {
-        this.foundItemRepository = foundItemRepository;
-        this.foundItemImageRepository = foundItemImageRepository;
-    }
 
     @Transactional
     public List<FoundItemImageResponse> upload(Long foundItemId, Long requesterId, List<MultipartFile> images) {
