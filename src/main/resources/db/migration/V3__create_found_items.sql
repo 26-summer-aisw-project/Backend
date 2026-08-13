@@ -18,7 +18,7 @@ CREATE TABLE found_items (
 
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    closed_at TIMESTAMPTZ,
+    expired_at TIMESTAMPTZ NOT NULL DEFAULT (NOW() + INTERVAL '14 days'),
 
     CONSTRAINT found_items_category_not_blank_check
         CHECK (btrim(category) <> ''),
@@ -37,13 +37,6 @@ CREATE TABLE found_items (
 
     CONSTRAINT found_items_status_check
         CHECK (status IN ('ACTIVE', 'CLOSED')),
-
-    CONSTRAINT found_items_closed_status_check
-        CHECK (
-            (status = 'ACTIVE' AND closed_at IS NULL)
-            OR
-            (status = 'CLOSED' AND closed_at IS NOT NULL)
-        ),
 
     CONSTRAINT found_items_storage_detail_check
         CHECK (
@@ -77,3 +70,6 @@ CREATE INDEX found_items_finder_created_idx
 
 CREATE INDEX found_items_status_created_idx
     ON found_items (status, created_at DESC);
+
+CREATE INDEX idx_found_items_expired_at
+    ON found_items (expired_at);

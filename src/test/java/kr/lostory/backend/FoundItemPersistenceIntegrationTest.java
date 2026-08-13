@@ -72,7 +72,8 @@ class FoundItemPersistenceIntegrationTest {
         assertThat(reloaded.getStatus()).isEqualTo(FoundItemStatus.ACTIVE);
         assertThat(reloaded.getCreatedAt()).isNotNull();
         assertThat(reloaded.getUpdatedAt()).isNotNull();
-        assertThat(reloaded.getClosedAt()).isNull();
+        assertThat(reloaded.getExpiredAt()).isNotNull();
+        assertThat(reloaded.getExpiredAt()).isAfter(reloaded.getCreatedAt());
     }
 
     private static String uniqueEmail() {

@@ -11,11 +11,14 @@ import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
 import java.time.Instant;
 import lombok.Getter;
+import java.time.Duration;
 
 @Getter
 @Entity
 @Table(name = "found_items")
 public class FoundItem {
+
+    private static final Duration DEFAULT_EXPIRATION_PERIOD = Duration.ofDays(14);
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -60,7 +63,8 @@ public class FoundItem {
     @Column(nullable = false)
     private Instant updatedAt;
 
-    private Instant closedAt;
+    @Column(name = "expired_at", nullable = false)
+    private Instant expiredAt;
 
     protected FoundItem() {
     }
@@ -88,6 +92,7 @@ public class FoundItem {
         this.status = FoundItemStatus.ACTIVE;
         this.createdAt = Instant.now();
         this.updatedAt = this.createdAt;
+        this.expiredAt = this.createdAt.plus(DEFAULT_EXPIRATION_PERIOD);
     }
 
     @PreUpdate

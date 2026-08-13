@@ -19,7 +19,7 @@ public record FoundItemResponse(
         FoundItemStatus status,
         Instant createdAt,
         Instant updatedAt,
-        Instant closedAt
+        Instant expiredAt
 ) {
 
     public static FoundItemResponse from(FoundItem foundItem) {
@@ -37,7 +37,7 @@ public record FoundItemResponse(
                 foundItem.getStatus(),
                 foundItem.getCreatedAt(),
                 foundItem.getUpdatedAt(),
-                foundItem.getClosedAt()
+                foundItem.getExpiredAt()
         );
     }
 }
