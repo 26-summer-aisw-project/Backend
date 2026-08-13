@@ -9,9 +9,10 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
+import java.math.BigDecimal;
+import java.time.Duration;
 import java.time.Instant;
 import lombok.Getter;
-import java.time.Duration;
 
 @Getter
 @Entity
@@ -39,9 +40,17 @@ public class FoundItem {
     @Column(nullable = false)
     private Instant foundAt;
 
-    // 텍스트로 위치를 받으나, 추후 PostGIS 좌표 기반 위치로 변경 예정
-    @Column(nullable = false, length = 255)
-    private String foundLocationText;
+    @Column(precision = 10, scale = 7)
+    private BigDecimal foundLatitude;
+
+    @Column(precision = 10, scale = 7)
+    private BigDecimal foundLongitude;
+
+    @Column(length = 255)
+    private String foundAddress;
+
+    @Column(length = 255)
+    private String foundLocationDetail;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 30)
@@ -75,7 +84,10 @@ public class FoundItem {
             String category,
             String description,
             Instant foundAt,
-            String foundLocationText,
+            BigDecimal foundLatitude,
+            BigDecimal foundLongitude,
+            String foundAddress,
+            String foundLocationDetail,
             StorageMethod storageMethod,
             String storageDescription,
             String handoverPlaceName
@@ -85,7 +97,10 @@ public class FoundItem {
         this.category = category;
         this.description = description;
         this.foundAt = foundAt;
-        this.foundLocationText = foundLocationText;
+        this.foundLatitude = foundLatitude;
+        this.foundLongitude = foundLongitude;
+        this.foundAddress = foundAddress;
+        this.foundLocationDetail = foundLocationDetail;
         this.storageMethod = storageMethod;
         this.storageDescription = storageDescription;
         this.handoverPlaceName = handoverPlaceName;

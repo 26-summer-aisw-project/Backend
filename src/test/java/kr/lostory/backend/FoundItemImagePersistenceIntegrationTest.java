@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import java.math.BigDecimal;
 
 import kr.lostory.backend.founditem.domain.FoundItem;
 import kr.lostory.backend.founditem.domain.FoundItemImage;
@@ -51,7 +52,10 @@ class FoundItemImagePersistenceIntegrationTest {
                 "WALLET_CARD",
                 "Black leather card wallet with several cards",
                 Instant.parse("2026-08-04T09:30:00Z"),
-                "Soongsil University student center 2F",
+                new BigDecimal("37.4961234"),
+                new BigDecimal("126.9575432"),
+                "서울특별시 동작구 상도로 369",
+                "학생회관 2층",
                 StorageMethod.HANDED_TO_CENTER,
                 null,
                 "Student center information desk"
