@@ -22,6 +22,7 @@ public class FoundItemService {
     @Transactional
     public FoundItemResponse register(CreateFoundItemCommand command) {
         validateStorage(command);
+        validateLocation(command);
 
         FoundItem foundItem = new FoundItem(
                 command.finderId(),
@@ -29,7 +30,10 @@ public class FoundItemService {
                 command.category(),
                 command.description(),
                 command.foundAt(),
-                command.foundLocationText(),
+                command.foundLatitude(),
+                command.foundLongitude(),
+                command.foundAddress(),
+                command.foundLocationDetail(),
                 command.storageMethod(),
                 command.storageDescription(),
                 command.handoverPlaceName()
@@ -101,6 +105,14 @@ public class FoundItemService {
                         "handoverPlaceName is required when storageMethod is HANDED_TO_CENTER."
                 );
             }
+        }
+    }
+    private void validateLocation(CreateFoundItemCommand command) {
+        if (command.foundLatitude() == null || command.foundLongitude() == null) {
+            throw new LostoryException(
+                    ErrorCode.INVALID_REQUEST,
+                    "foundLatitude and foundLongitude are required."
+            );
         }
     }
 }
