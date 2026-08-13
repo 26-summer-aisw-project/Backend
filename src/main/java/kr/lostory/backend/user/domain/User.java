@@ -1,20 +1,15 @@
 package kr.lostory.backend.user.domain;
 
 import java.time.Instant;
-import java.util.EnumSet;
 import java.util.Set;
-
-import jakarta.persistence.CollectionTable;
 import jakarta.persistence.Column;
-import jakarta.persistence.ElementCollection;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
-import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
-import jakarta.persistence.JoinColumn;
+import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
 
 @Entity
@@ -28,31 +23,45 @@ public class User {
 	@Column(nullable = false, length = 320, unique = true)
 	private String email;
 
-	@Column(name = "password_hash", nullable = false, length = 60)
+	@Column(name = "password_hash", nullable = false)
 	private String passwordHash;
+
+	@Column(name = "display_name", nullable = false, length = 50)
+	private String displayName;
 
 	@Enumerated(EnumType.STRING)
 	@Column(nullable = false, length = 16)
 	private UserStatus status;
 
+	@Enumerated(EnumType.STRING)
+	@Column(nullable = false, length = 16)
+	private UserRole role;
+
 	@Column(name = "created_at", nullable = false)
 	private Instant createdAt;
 
-	@ElementCollection(fetch = FetchType.LAZY)
-	@CollectionTable(name = "user_roles", joinColumns = @JoinColumn(name = "user_id"))
-	@Enumerated(EnumType.STRING)
-	@Column(name = "role", nullable = false, length = 16)
-	private Set<UserRole> roles = EnumSet.noneOf(UserRole.class);
+	@Column(name = "updated_at", nullable = false)
+	private Instant updatedAt;
 
 	protected User() {
 	}
 
 	public User(String email, String passwordHash) {
+		this(email, passwordHash, "User", UserRole.USER);
+	}
+
+	public User(String email, String passwordHash, String displayName) {
+		this(email, passwordHash, displayName, UserRole.USER);
+	}
+
+	public User(String email, String passwordHash, String displayName, UserRole role) {
 		this.email = email;
 		this.passwordHash = passwordHash;
+		this.displayName = displayName;
 		this.status = UserStatus.ACTIVE;
+		this.role = role;
 		this.createdAt = Instant.now();
-		this.roles.add(UserRole.USER);
+		this.updatedAt = this.createdAt;
 	}
 
 	public Long getId() {
@@ -67,15 +76,32 @@ public class User {
 		return passwordHash;
 	}
 
+	public String getDisplayName() {
+		return displayName;
+	}
+
 	public UserStatus getStatus() {
 		return status;
+	}
+
+	public UserRole getRole() {
+		return role;
 	}
 
 	public Instant getCreatedAt() {
 		return createdAt;
 	}
 
+	public Instant getUpdatedAt() {
+		return updatedAt;
+	}
+
 	public Set<UserRole> getRoles() {
-		return Set.copyOf(roles);
+		return Set.of(role);
+	}
+
+	@PreUpdate
+	void updateTimestamp() {
+		updatedAt = Instant.now();
 	}
 }
