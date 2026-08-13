@@ -41,12 +41,19 @@ public class FoundItemService {
     }
 
     @Transactional(readOnly = true)
-    public FoundItemResponse get(Long id) {
+    public FoundItemResponse get(Long id, Long requesterId) {
         FoundItem foundItem = foundItemRepository.findById(id)
                 .orElseThrow(() -> new LostoryException(
                         ErrorCode.RESOURCE_NOT_FOUND,
-                        "Found item not found."
+                        "습득물이 찾아지지 않았습니다."
                 ));
+
+        if (!foundItem.getFinderId().equals(requesterId)) {
+            throw new LostoryException(
+                    ErrorCode.FORBIDDEN,
+                    "본인이 등록한 습득물만 조회할 수 있습니다."
+            );
+        }
 
         return FoundItemResponse.from(foundItem);
     }

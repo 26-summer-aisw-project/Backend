@@ -37,7 +37,11 @@ public class FoundItemController {
     }
 
     @GetMapping("/{id}")
-    public FoundItemResponse get(@PathVariable Long id) {
-        return foundItemService.get(id);
+    public FoundItemResponse get(
+            @PathVariable Long id,
+            @AuthenticationPrincipal Jwt jwt
+    ) {
+        Long requesterId = Long.valueOf(jwt.getSubject());
+        return foundItemService.get(id, requesterId);
     }
 }

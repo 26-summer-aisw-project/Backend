@@ -10,7 +10,9 @@ import jakarta.persistence.Id;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
 import java.time.Instant;
+import lombok.Getter;
 
+@Getter
 @Entity
 @Table(name = "found_items")
 public class FoundItem {
@@ -91,61 +93,5 @@ public class FoundItem {
     @PreUpdate
     void updateTimestamp() {
         this.updatedAt = Instant.now();
-    }
-
-    public Long getId() {
-        return id;
-    }
-
-    public Long getFinderId() {
-        return finderId;
-    }
-
-    public String getName() {
-        return name;
-    }
-
-    public String getCategory() {
-        return category;
-    }
-
-    public String getDescription() {
-        return description;
-    }
-
-    public Instant getFoundAt() {
-        return foundAt;
-    }
-
-    public String getFoundLocationText() {
-        return foundLocationText;
-    }
-
-    public StorageMethod getStorageMethod() {
-        return storageMethod;
-    }
-
-    public String getStorageDescription() {
-        return storageDescription;
-    }
-
-    public String getHandoverPlaceName() {
-        return handoverPlaceName;
-    }
-
-    public FoundItemStatus getStatus() {
-        return status;
-    }
-
-    public Instant getCreatedAt() {
-        return createdAt;
-    }
-
-    public Instant getUpdatedAt() {
-        return updatedAt;
-    }
-
-    public Instant getClosedAt() {
-        return closedAt;
     }
 }

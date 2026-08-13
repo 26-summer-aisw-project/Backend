@@ -45,8 +45,15 @@ public record CreateFoundItemRequest(
                 foundAt.toInstant(),
                 foundLocationText,
                 storageMethod,
-                storageDescription,
-                handoverPlaceName
+                blankToNull(storageDescription),
+                blankToNull(handoverPlaceName)
         );
+    }
+
+    private static String blankToNull(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        return value.trim();
     }
 }
