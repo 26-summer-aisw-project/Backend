@@ -297,9 +297,9 @@ UNIQUE (id, reporter_id)
 CHECK (btrim(category) <> '')
 CHECK (btrim(description) <> '' AND char_length(description) <= 1000)
 CHECK (lost_at_from <= lost_at_to)
-CHECK (search_radius_m BETWEEN 100 AND 3000)
+CHECK (search_radius BETWEEN 100 AND 3000)
 CHECK (status IN ('OPEN', 'CLOSED', 'EXPIRED'))
-CHECK (expires_at IS NULL OR expires_at > created_at)
+CHECK (expired_at > created_at)
 
 ```
 
