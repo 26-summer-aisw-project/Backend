@@ -7,7 +7,9 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import java.time.Instant;
+import lombok.Getter;
 
+@Getter
 @Entity
 @Table(name = "found_item_images")
 public class FoundItemImage {
@@ -55,37 +57,5 @@ public class FoundItemImage {
         this.contentType = contentType;
         this.sizeBytes = sizeBytes;
         this.createdAt = Instant.now();
-    }
-
-    public Long getId() {
-        return id;
-    }
-
-    public Long getFoundItemId() {
-        return foundItemId;
-    }
-
-    public String getOriginalFilename() {
-        return originalFilename;
-    }
-
-    public String getStoredFilename() {
-        return storedFilename;
-    }
-
-    public String getStoragePath() {
-        return storagePath;
-    }
-
-    public String getContentType() {
-        return contentType;
-    }
-
-    public Long getSizeBytes() {
-        return sizeBytes;
-    }
-
-    public Instant getCreatedAt() {
-        return createdAt;
     }
 }
