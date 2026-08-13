@@ -45,3 +45,6 @@ list_school/data/center_candidates_review.csv
 
 ### Agent Files ###
 .omo/
+
+### Local Files ###
+uploads/

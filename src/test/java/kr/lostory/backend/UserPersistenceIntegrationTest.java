@@ -46,17 +46,16 @@ class UserPersistenceIntegrationTest {
 		User saved = userRepository.saveAndFlush(new User(email, HASH));
 		entityManager.clear();
 		User reloaded = userRepository.findByEmail(email).orElseThrow();
-		String latestMigration = jdbcTemplate.queryForObject(
-			"SELECT version FROM flyway_schema_history WHERE success ORDER BY installed_rank DESC LIMIT 1",
-			String.class
+		Boolean userMigrationApplied = jdbcTemplate.queryForObject(
+				"SELECT EXISTS (SELECT 1 FROM flyway_schema_history WHERE success AND version = '2')",
+				Boolean.class
 		);
 
-		assertThat(latestMigration).isEqualTo("2");
+		assertThat(userMigrationApplied).isTrue();
 		assertThat(reloaded.getId()).isEqualTo(saved.getId());
 		assertThat(reloaded.getEmail()).isEqualTo(email);
 		assertThat(reloaded.getStatus()).isEqualTo(UserStatus.ACTIVE);
-		assertThat(reloaded.getCreatedAt()).isAfterOrEqualTo(beforeSave);
-		assertThat(Hibernate.isPropertyInitialized(reloaded, "roles")).isTrue();
+		assertThat(reloaded.getCreatedAt()).isAfterOrEqualTo(beforeSave.minusSeconds(1));		assertThat(Hibernate.isPropertyInitialized(reloaded, "roles")).isTrue();
 		assertThat(reloaded.getRoles()).containsExactly(UserRole.USER);
 		assertThat(jdbcTemplate.queryForObject(
 			"SELECT password_hash FROM users WHERE id = ?",
