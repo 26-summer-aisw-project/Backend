@@ -23,13 +23,15 @@ public class AuthService {
 	private final JwtTokenService tokenService;
 
 	@Transactional
-	public UserResponse signup(AuthRequest request) {
+	public UserResponse signup(SignupRequest request) {
 		String email = normalizeEmail(request.email());
 		if (userRepository.existsByEmail(email)) {
 			throw new LostoryException(ErrorCode.DUPLICATE_EMAIL);
 		}
 		try {
-			return UserResponse.from(userRepository.saveAndFlush(new User(email, passwordEncoder.encode(request.password()))));
+			return UserResponse.from(userRepository.saveAndFlush(
+					new User(email, passwordEncoder.encode(request.password()), request.displayName())
+			));
 		} catch (DataIntegrityViolationException exception) {
 			throw new LostoryException(ErrorCode.DUPLICATE_EMAIL);
 		}
