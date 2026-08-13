@@ -92,7 +92,7 @@ class AuthIntegrationTest {
 		String email = uniqueEmail();
 
 		// When
-		HttpResponse<String> signup = post("/api/v1/auth/signup", credentials("  " + email.toUpperCase() + "  ", PASSWORD));
+		HttpResponse<String> signup = post("/api/v1/auth/signup", signupCredentials("  " + email.toUpperCase() + "  ", PASSWORD));
 		HttpResponse<String> login = post("/api/v1/auth/login", credentials(" " + email.toUpperCase() + " ", PASSWORD));
 		JsonNode loginJson = json(login);
 		assertThat(signup.statusCode()).describedAs(signup.body()).isEqualTo(201);
@@ -114,11 +114,35 @@ class AuthIntegrationTest {
 	}
 
 	@Test
+	void signupPersistsDisplayNameAndRequiresIt() throws Exception {
+		// Given
+		String email = uniqueEmail();
+
+		// When
+		HttpResponse<String> signup = post("/api/v1/auth/signup", signupCredentials(email, PASSWORD, "  새 사용자  "));
+		HttpResponse<String> missingName = post(
+				"/api/v1/auth/signup",
+				objectMapper.writeValueAsString(Map.of("email", uniqueEmail(), "password", PASSWORD))
+		);
+		HttpResponse<String> blankName = post("/api/v1/auth/signup", signupCredentials(uniqueEmail(), PASSWORD, " "));
+
+		// Then
+		assertThat(signup.statusCode()).isEqualTo(201);
+		assertThat(jdbcTemplate.queryForObject(
+				"SELECT display_name FROM users WHERE email = ?",
+				String.class,
+				email
+		)).isEqualTo("새 사용자");
+		assertError(missingName, 400, "COMMON-001");
+		assertError(blankName, 400, "COMMON-001");
+	}
+
+	@Test
 	void concurrentDuplicateAndInvalidCredentialsFailSafely() throws Exception {
 		// Given
 		String email = uniqueEmail();
-		String bodyOne = credentials(" " + email.toUpperCase() + " ", PASSWORD);
-		String bodyTwo = credentials(email, PASSWORD);
+		String bodyOne = signupCredentials(" " + email.toUpperCase() + " ", PASSWORD);
+		String bodyTwo = signupCredentials(email, PASSWORD);
 
 		// When
 		HttpResponse<String> first;
@@ -137,28 +161,28 @@ class AuthIntegrationTest {
 
 		HttpResponse<String> unknown = post("/api/v1/auth/login", credentials(uniqueEmail(), PASSWORD));
 		HttpResponse<String> wrong = post("/api/v1/auth/login", credentials(email, "Wrong-Password-42"));
-		jdbcTemplate.update("update users set status = 'INACTIVE' where email = ?", email);
+		jdbcTemplate.update("update users set status = 'BLOCKED' where email = ?", email);
 		HttpResponse<String> inactive = post("/api/v1/auth/login", credentials(email, PASSWORD));
 		assertThat(stableError(unknown)).isEqualTo(stableError(wrong)).isEqualTo(stableError(inactive));
 		assertThat(stableError(unknown)).containsEntry("status", 401).containsEntry("code", "AUTH-002");
 
 		String activeEmail = uniqueEmail();
-		post("/api/v1/auth/signup", credentials(activeEmail, PASSWORD));
+		post("/api/v1/auth/signup", signupCredentials(activeEmail, PASSWORD));
 		String token = json(post("/api/v1/auth/login", credentials(activeEmail, PASSWORD))).get("accessToken").asString();
-		jdbcTemplate.update("update users set status = 'INACTIVE' where email = ?", activeEmail);
+		jdbcTemplate.update("update users set status = 'BLOCKED' where email = ?", activeEmail);
 		HttpResponse<String> staleToken = get("/api/v1/users/me", token);
 		assertError(staleToken, 401, "AUTH-003");
 		assertError(get("/api/v1/users/me", null), 401, "COMMON-002");
 
 		assertError(rawPost("/api/v1/auth/signup", "{"), 400, "COMMON-001");
-		assertError(post("/api/v1/auth/signup", credentials("not-an-email", PASSWORD)), 400, "COMMON-001");
-		assertError(post("/api/v1/auth/signup", credentials("a".repeat(314) + "@x.test", PASSWORD)), 400, "COMMON-001");
-		assertError(post("/api/v1/auth/signup", credentials(uniqueEmail(), "1234567")), 400, "COMMON-001");
-		assertThat(post("/api/v1/auth/signup", credentials(uniqueEmail(), "12345678")).statusCode()).isEqualTo(201);
-		assertThat(post("/api/v1/auth/signup", credentials(uniqueEmail(), "가".repeat(24))).statusCode()).isEqualTo(201);
-		assertError(post("/api/v1/auth/signup", credentials(uniqueEmail(), "가".repeat(25))), 400, "COMMON-001");
-		assertThat(post("/api/v1/auth/signup", credentials(uniqueEmail(), "a".repeat(72))).statusCode()).isEqualTo(201);
-		assertError(post("/api/v1/auth/signup", credentials(uniqueEmail(), "a".repeat(73))), 400, "COMMON-001");
+		assertError(post("/api/v1/auth/signup", signupCredentials("not-an-email", PASSWORD)), 400, "COMMON-001");
+		assertError(post("/api/v1/auth/signup", signupCredentials("a".repeat(314) + "@x.test", PASSWORD)), 400, "COMMON-001");
+		assertError(post("/api/v1/auth/signup", signupCredentials(uniqueEmail(), "1234567")), 400, "COMMON-001");
+		assertThat(post("/api/v1/auth/signup", signupCredentials(uniqueEmail(), "12345678")).statusCode()).isEqualTo(201);
+		assertThat(post("/api/v1/auth/signup", signupCredentials(uniqueEmail(), "가".repeat(24))).statusCode()).isEqualTo(201);
+		assertError(post("/api/v1/auth/signup", signupCredentials(uniqueEmail(), "가".repeat(25))), 400, "COMMON-001");
+		assertThat(post("/api/v1/auth/signup", signupCredentials(uniqueEmail(), "a".repeat(72))).statusCode()).isEqualTo(201);
+		assertError(post("/api/v1/auth/signup", signupCredentials(uniqueEmail(), "a".repeat(73))), 400, "COMMON-001");
 	}
 
 	@Test
@@ -193,6 +217,18 @@ class AuthIntegrationTest {
 
 	private String credentials(String email, String password) throws Exception {
 		return objectMapper.writeValueAsString(Map.of("email", email, "password", password));
+	}
+
+	private String signupCredentials(String email, String password) throws Exception {
+		return signupCredentials(email, password, "테스트 사용자");
+	}
+
+	private String signupCredentials(String email, String password, String displayName) throws Exception {
+		return objectMapper.writeValueAsString(Map.of(
+				"email", email,
+				"password", password,
+				"displayName", displayName
+		));
 	}
 
 	private HttpResponse<String> post(String path, String body) throws Exception {

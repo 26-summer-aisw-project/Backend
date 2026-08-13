@@ -8,7 +8,6 @@ import kr.lostory.backend.user.domain.User;
 import kr.lostory.backend.user.domain.UserRole;
 import kr.lostory.backend.user.domain.UserStatus;
 import kr.lostory.backend.user.repository.UserRepository;
-import org.hibernate.Hibernate;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -39,7 +38,7 @@ class UserPersistenceIntegrationTest {
 	private JdbcTemplate jdbcTemplate;
 
 	@Test
-	void activeUserPersistsAndReloadsWithRolesAfterV2() {
+	void activeUserPersistsAndReloadsWithSingleRoleAfterV5() {
 		String email = uniqueEmail();
 		Instant beforeSave = Instant.now();
 
@@ -47,16 +46,18 @@ class UserPersistenceIntegrationTest {
 		entityManager.clear();
 		User reloaded = userRepository.findByEmail(email).orElseThrow();
 		Boolean userMigrationApplied = jdbcTemplate.queryForObject(
-				"SELECT EXISTS (SELECT 1 FROM flyway_schema_history WHERE success AND version = '2')",
+				"SELECT EXISTS (SELECT 1 FROM flyway_schema_history WHERE success AND version = '5')",
 				Boolean.class
 		);
 
 		assertThat(userMigrationApplied).isTrue();
 		assertThat(reloaded.getId()).isEqualTo(saved.getId());
 		assertThat(reloaded.getEmail()).isEqualTo(email);
+		assertThat(reloaded.getDisplayName()).isEqualTo("User");
 		assertThat(reloaded.getStatus()).isEqualTo(UserStatus.ACTIVE);
-		assertThat(reloaded.getCreatedAt()).isAfterOrEqualTo(beforeSave.minusSeconds(1));		assertThat(Hibernate.isPropertyInitialized(reloaded, "roles")).isTrue();
-		assertThat(reloaded.getRoles()).containsExactly(UserRole.USER);
+		assertThat(reloaded.getRole()).isEqualTo(UserRole.USER);
+		assertThat(reloaded.getCreatedAt()).isAfterOrEqualTo(beforeSave.minusSeconds(1));
+		assertThat(reloaded.getUpdatedAt()).isAfterOrEqualTo(beforeSave.minusSeconds(1));
 		assertThat(jdbcTemplate.queryForObject(
 			"SELECT password_hash FROM users WHERE id = ?",
 			String.class,
@@ -79,29 +80,23 @@ class UserPersistenceIntegrationTest {
 	}
 
 	@Test
-	void databaseRejectsDuplicateEmail() {
+	void databaseRejectsCaseInsensitiveDuplicateEmail() {
 		String email = uniqueEmail();
 		insertUser(email);
 
-		assertThatThrownBy(() -> insertUser(email))
+		assertThatThrownBy(() -> insertUser(email.toUpperCase()))
 			.isInstanceOf(DataIntegrityViolationException.class)
-			.rootCause().hasMessageContaining("uk_users_email");
+			.rootCause().hasMessageContaining("users_email_ci_uq");
 	}
 
 	@Test
 	void databaseRejectsInvalidRole() {
-		Long userId = jdbcTemplate.queryForObject(
-			"INSERT INTO users (email, password_hash, status, created_at) VALUES (?, ?, 'ACTIVE', CURRENT_TIMESTAMP) RETURNING id",
-			Long.class,
+		assertThatThrownBy(() -> jdbcTemplate.update(
+			"INSERT INTO users (email, password_hash, status, role, created_at) VALUES (?, ?, 'ACTIVE', 'OWNER', CURRENT_TIMESTAMP)",
 			uniqueEmail(),
 			HASH
-		);
-
-		assertThatThrownBy(() -> jdbcTemplate.update(
-			"INSERT INTO user_roles (user_id, role) VALUES (?, 'OWNER')",
-			userId
 		)).isInstanceOf(DataIntegrityViolationException.class)
-			.rootCause().hasMessageContaining("ck_user_roles_role");
+			.rootCause().hasMessageContaining("ck_users_role");
 	}
 
 	private void insertUser(String email) {
