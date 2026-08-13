@@ -117,7 +117,7 @@ CHECK (contact_phone = btrim(contact_phone))
   > 💡`enum` FoundItemStatus
   >
   > - ACTIVE : 매칭 가능한, 유효한 습득물
-  > - CLOSED : 매칭 불가능한, 더 이상 유효하지 않은 습득물
+  > - EXPIRED : 매칭 불가능한, 더 이상 유효하지 않은 습득물
   > - RETURNED : 주인에게 반환된 물건
 - storage_method (`text`)
   - NOT NULL
@@ -145,7 +145,7 @@ CHECK (contact_phone = btrim(contact_phone))
 
 ```sql
 CHECK (btrim(category) <> '')
-CHECK (status IN ('ACTIVE', 'CLOSED', 'RETURNED'))
+CHECK (status IN ('ACTIVE', 'EXPIRED', 'RETURNED'))
 CHECK (
   (
       storage_method = 'LEFT_IN_PLACE'
