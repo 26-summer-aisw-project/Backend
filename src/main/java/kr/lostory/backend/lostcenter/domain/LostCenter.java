@@ -1,14 +1,12 @@
 package kr.lostory.backend.lostcenter.domain;
 
-import java.time.Instant;
-
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
-import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
+import java.time.Instant;
 import lombok.Getter;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
@@ -19,62 +17,50 @@ import org.locationtech.jts.geom.Point;
 @Table(name = "lost_centers")
 public class LostCenter {
 
-	@Id
-	@GeneratedValue(strategy = GenerationType.IDENTITY)
-	private Long id;
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
 
-	@Column(name = "source_key", unique = true)
-	private String sourceKey;
+    @Column(name = "center_key", nullable = false, length = 100)
+    private String centerKey;
 
-	@Column(nullable = false)
-	private String name;
+    @Column(nullable = false, length = 150)
+    private String name;
 
-	@Column(nullable = false)
-	private String address;
+    @Column(name = "parent_place", length = 100)
+    private String parentPlace;
 
-	@JdbcTypeCode(SqlTypes.GEOGRAPHY)
-	@Column(nullable = false, columnDefinition = "geography(Point, 4326)")
-	private Point location;
+    @Column(name = "phone_number", length = 100)
+    private String phoneNumber;
 
-	@Column(name = "contact_phone", nullable = false)
-	private String contactPhone;
+    @Column(nullable = false, length = 255)
+    private String address;
 
-	@Column(name = "operating_hours", nullable = false)
-	private String operatingHours;
+    @Column(name = "detail_location", length = 255)
+    private String detailLocation;
 
-	@Column(name = "is_active", nullable = false)
-	private boolean active;
+    @JdbcTypeCode(SqlTypes.GEOGRAPHY)
+    @Column(nullable = false, columnDefinition = "geography(Point, 4326)")
+    private Point location;
 
-	@Column(name = "created_at", nullable = false)
-	private Instant createdAt;
+    @Column(name = "operating_hours", length = 255)
+    private String operatingHours;
 
-	@Column(name = "updated_at", nullable = false)
-	private Instant updatedAt;
+    @Column(name = "handoff_available", nullable = false, length = 20)
+    private String handoffAvailable;
 
-	protected LostCenter() {
-	}
+    @Column(name = "verification_status", nullable = false, length = 80)
+    private String verificationStatus;
 
-	public LostCenter(
-			String sourceKey,
-			String name,
-			String address,
-			Point location,
-			String contactPhone,
-			String operatingHours
-	) {
-		this.sourceKey = sourceKey;
-		this.name = name;
-		this.address = address;
-		this.location = location;
-		this.contactPhone = contactPhone;
-		this.operatingHours = operatingHours;
-		this.active = true;
-		this.createdAt = Instant.now();
-		this.updatedAt = this.createdAt;
-	}
+    @Column(name = "is_active", nullable = false)
+    private boolean active;
 
-	@PreUpdate
-	void updateTimestamp() {
-		updatedAt = Instant.now();
-	}
+    @Column(name = "created_at", nullable = false)
+    private Instant createdAt;
+
+    @Column(name = "updated_at", nullable = false)
+    private Instant updatedAt;
+
+    protected LostCenter() {
+    }
 }
