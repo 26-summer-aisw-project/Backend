@@ -13,6 +13,12 @@ import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
 import lombok.Getter;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
+import org.locationtech.jts.geom.Coordinate;
+import org.locationtech.jts.geom.GeometryFactory;
+import org.locationtech.jts.geom.Point;
+import org.locationtech.jts.geom.PrecisionModel;
 
 @Getter
 @Entity
@@ -20,6 +26,7 @@ import lombok.Getter;
 public class FoundItem {
 
     private static final Duration DEFAULT_EXPIRATION_PERIOD = Duration.ofDays(14);
+    private static final GeometryFactory GEOMETRY_FACTORY = new GeometryFactory(new PrecisionModel(), 4326);
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -40,11 +47,9 @@ public class FoundItem {
     @Column(nullable = false)
     private Instant foundAt;
 
-    @Column(precision = 10, scale = 7)
-    private BigDecimal foundLatitude;
-
-    @Column(precision = 10, scale = 7)
-    private BigDecimal foundLongitude;
+    @JdbcTypeCode(SqlTypes.GEOGRAPHY)
+    @Column(name = "found_location", columnDefinition = "geography(Point, 4326)")
+    private Point foundLocation;
 
     @Column(length = 255)
     private String foundAddress;
@@ -97,8 +102,12 @@ public class FoundItem {
         this.category = category;
         this.description = description;
         this.foundAt = foundAt;
-        this.foundLatitude = foundLatitude;
-        this.foundLongitude = foundLongitude;
+        this.foundLocation = foundLatitude == null || foundLongitude == null
+                ? null
+                : GEOMETRY_FACTORY.createPoint(new Coordinate(
+                        foundLongitude.doubleValue(),
+                        foundLatitude.doubleValue()
+                ));
         this.foundAddress = foundAddress;
         this.foundLocationDetail = foundLocationDetail;
         this.storageMethod = storageMethod;
@@ -108,6 +117,14 @@ public class FoundItem {
         this.createdAt = Instant.now();
         this.updatedAt = this.createdAt;
         this.expiredAt = this.createdAt.plus(DEFAULT_EXPIRATION_PERIOD);
+    }
+
+    public BigDecimal getFoundLatitude() {
+        return foundLocation == null ? null : BigDecimal.valueOf(foundLocation.getY());
+    }
+
+    public BigDecimal getFoundLongitude() {
+        return foundLocation == null ? null : BigDecimal.valueOf(foundLocation.getX());
     }
 
     @PreUpdate
