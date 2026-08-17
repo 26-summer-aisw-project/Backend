@@ -19,6 +19,7 @@ repositories {
 
 dependencies {
 	implementation 'org.locationtech.jts:jts-core:1.20.0'
+	implementation 'org.hibernate.orm:hibernate-spatial'
 	implementation 'org.springframework.boot:spring-boot-starter-actuator'
 	implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
 	implementation 'org.hibernate.orm:hibernate-spatial'
