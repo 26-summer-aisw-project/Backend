@@ -28,35 +28,32 @@ public class LostCenter {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(name = "center_key", nullable = false, length = 100)
-    private String centerKey;
+    @Column(name = "source_key", unique = true)
+    private String sourceKey;
 
-    @Column(nullable = false, length = 150)
+    @Column(nullable = false)
     private String name;
 
-    @Column(name = "parent_place", length = 100)
+    @Column(name = "parent_place")
     private String parentPlace;
 
-    @Column(name = "phone_number", length = 100)
-    private String phoneNumber;
-
-    @Column(nullable = false, length = 255)
+    @Column(nullable = false)
     private String address;
 
-    @Column(name = "detail_location", length = 255)
+    @Column(name = "detail_location")
     private String detailLocation;
 
     @JdbcTypeCode(SqlTypes.GEOGRAPHY)
     @Column(nullable = false, columnDefinition = "geography(Point, 4326)")
     private Point location;
 
-    @Column(name = "operating_hours", length = 255)
+    @Column(name = "contact_phone", nullable = false)
+    private String contactPhone;
+
+    @Column(name = "operating_hours", nullable = false)
     private String operatingHours;
 
-    @Column(name = "handoff_available", nullable = false, length = 20)
-    private String handoffAvailable;
-
-    @Column(name = "verification_status", nullable = false, length = 80)
+    @Column(name = "verification_status", nullable = false)
     private String verificationStatus;
 
     @Column(name = "is_active", nullable = false)
@@ -72,29 +69,47 @@ public class LostCenter {
     }
 
     public LostCenter(
-            String centerKey,
+            String sourceKey,
+            String name,
+            String address,
+            Point location,
+            String contactPhone,
+            String operatingHours
+    ) {
+        this.sourceKey = sourceKey;
+        this.name = name;
+        this.address = address;
+        this.location = location;
+        this.contactPhone = contactPhone;
+        this.operatingHours = operatingHours;
+        this.verificationStatus = "inactive";
+        this.active = true;
+        this.createdAt = Instant.now();
+        this.updatedAt = this.createdAt;
+    }
+
+    public LostCenter(
+            String sourceKey,
             String name,
             String parentPlace,
-            String phoneNumber,
             String address,
             String detailLocation,
             BigDecimal latitude,
             BigDecimal longitude,
+            String contactPhone,
             String operatingHours,
-            String handoffAvailable,
             String verificationStatus
     ) {
-        this.centerKey = centerKey;
+        this.sourceKey = sourceKey;
         synchronize(
                 name,
                 parentPlace,
-                phoneNumber,
                 address,
                 detailLocation,
                 latitude,
                 longitude,
+                contactPhone,
                 operatingHours,
-                handoffAvailable,
                 verificationStatus
         );
         this.active = true;
@@ -104,26 +119,24 @@ public class LostCenter {
     public void synchronize(
             String name,
             String parentPlace,
-            String phoneNumber,
             String address,
             String detailLocation,
             BigDecimal latitude,
             BigDecimal longitude,
+            String contactPhone,
             String operatingHours,
-            String handoffAvailable,
             String verificationStatus
     ) {
         this.name = name;
         this.parentPlace = parentPlace;
-        this.phoneNumber = phoneNumber;
         this.address = address;
         this.detailLocation = detailLocation;
         this.location = GEOMETRY_FACTORY.createPoint(new Coordinate(
                 longitude.doubleValue(),
                 latitude.doubleValue()
         ));
+        this.contactPhone = contactPhone;
         this.operatingHours = operatingHours;
-        this.handoffAvailable = handoffAvailable;
         this.verificationStatus = verificationStatus;
         this.active = true;
         this.updatedAt = Instant.now();

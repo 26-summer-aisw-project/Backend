@@ -26,18 +26,19 @@ class LostCenterCsvInitializationIntegrationTest {
 
     @Test
     void curatedCsvIsLoadedAtStartupAndCanBeSafelyReloaded() {
-        assertThat(lostCenterRepository.count()).isEqualTo(48);
+        assertThat(lostCenterRepository.count()).isEqualTo(24);
 
-        LostCenter center = lostCenterRepository.findAllByCenterKeyIn(
+        LostCenter center = lostCenterRepository.findAllBySourceKeyIn(
                         List.of("ssu_primary_student_service_team")
                 )
                 .getFirst();
         assertThat(center.getLocation().getSRID()).isEqualTo(4326);
         assertThat(center.getLocation().getY()).isEqualTo(37.49675193536618);
         assertThat(center.getLocation().getX()).isEqualTo(126.95697691809838);
+        assertThat(center.getVerificationStatus()).isEqualTo("official_verified");
 
         lostCenterCsvInitializer.run(new DefaultApplicationArguments());
 
-        assertThat(lostCenterRepository.count()).isEqualTo(48);
+        assertThat(lostCenterRepository.count()).isEqualTo(24);
     }
 }

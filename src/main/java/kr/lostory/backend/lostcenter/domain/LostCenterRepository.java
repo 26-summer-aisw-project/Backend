@@ -9,20 +9,19 @@ import org.springframework.data.repository.query.Param;
 
 public interface LostCenterRepository extends JpaRepository<LostCenter, Long> {
 
-    List<LostCenter> findAllByCenterKeyIn(Collection<String> centerKeys);
+    List<LostCenter> findAllBySourceKeyIn(Collection<String> sourceKeys);
 
     @Query(
             value = """
                     SELECT
                         lc.id AS id,
-                        lc.center_key AS "centerKey",
+                        lc.source_key AS "centerKey",
                         lc.name AS name,
                         lc.parent_place AS "parentPlace",
                         lc.address AS address,
                         lc.detail_location AS "detailLocation",
-                        lc.phone_number AS "phoneNumber",
+                        lc.contact_phone AS "phoneNumber",
                         lc.operating_hours AS "operatingHours",
-                        lc.handoff_available AS "handoffAvailable",
                         lc.verification_status AS "verificationStatus",
                         ST_Y(lc.location::geometry) AS latitude,
                         ST_X(lc.location::geometry) AS longitude,
@@ -32,7 +31,6 @@ public interface LostCenterRepository extends JpaRepository<LostCenter, Long> {
                         ) AS "distanceMeters"
                     FROM lost_centers lc
                     WHERE lc.is_active = true
-                      AND lc.handoff_available = 'yes'
                       AND lc.verification_status IN (
                           'official_verified',
                           'official_board_verified',
@@ -65,8 +63,6 @@ public interface LostCenterRepository extends JpaRepository<LostCenter, Long> {
         String getPhoneNumber();
 
         String getOperatingHours();
-
-        String getHandoffAvailable();
 
         String getVerificationStatus();
 

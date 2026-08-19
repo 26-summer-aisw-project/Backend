@@ -58,7 +58,7 @@ class FoundItemPersistenceIntegrationTest {
         FoundItem reloaded = foundItemRepository.findById(saved.getId()).orElseThrow();
 
         Boolean foundItemLocationMigrationApplied = jdbcTemplate.queryForObject(
-                "SELECT EXISTS (SELECT 1 FROM flyway_schema_history WHERE success AND version = '16')",
+                "SELECT EXISTS (SELECT 1 FROM flyway_schema_history WHERE success AND version = '17')",
                 Boolean.class
         );
 
