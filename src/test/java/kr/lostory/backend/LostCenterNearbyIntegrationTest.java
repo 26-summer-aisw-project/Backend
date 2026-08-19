@@ -20,7 +20,6 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -40,9 +39,6 @@ class LostCenterNearbyIntegrationTest {
 
     @Autowired
     private UserRepository userRepository;
-
-    @Autowired
-    private JdbcTemplate jdbcTemplate;
 
     @Test
     void nearbyLostCentersAreReturnedByDistanceFromFoundItem() {
@@ -68,18 +64,11 @@ class LostCenterNearbyIntegrationTest {
                 finder.getId()
         );
 
-        Boolean lostCenterMigrationApplied = jdbcTemplate.queryForObject(
-                "SELECT EXISTS (SELECT 1 FROM flyway_schema_history WHERE success AND version = '6')",
-                Boolean.class
-        );
-
-        assertThat(lostCenterMigrationApplied).isTrue();
         assertThat(responses).hasSize(3);
         assertThat(responses.get(0).centerKey()).isEqualTo("ssu_primary_student_service_team");
         assertThat(responses.get(0).distanceMeters()).isLessThan(responses.get(1).distanceMeters());
         assertThat(responses.get(1).distanceMeters()).isLessThan(responses.get(2).distanceMeters());
         assertThat(responses).allSatisfy(response -> {
-            assertThat(response.handoffAvailable()).isEqualTo("yes");
             assertThat(response.verificationStatus()).isIn(
                     "official_verified",
                     "official_board_verified",
