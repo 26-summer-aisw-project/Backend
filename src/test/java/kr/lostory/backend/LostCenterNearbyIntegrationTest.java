@@ -63,40 +63,6 @@ class LostCenterNearbyIntegrationTest {
                 "Student center information desk"
         ));
 
-        insertLostCenter(
-                "near_center",
-                "가까운 분실물센터",
-                "숭실대학교",
-                "02-0000-0001",
-                "서울 동작구 상도로 369",
-                "학생회관 2층",
-                "09:00~18:00",
-                "126.9576000",
-                "37.4962000"
-        );
-        insertLostCenter(
-                "middle_center",
-                "중간 분실물센터",
-                "숭실대학교",
-                "02-0000-0002",
-                "서울 동작구 상도로 369",
-                "중앙도서관 1층",
-                "09:00~18:00",
-                "126.9600000",
-                "37.4980000"
-        );
-        insertLostCenter(
-                "far_center",
-                "먼 분실물센터",
-                "숭실대학교",
-                "02-0000-0003",
-                "서울 동작구 상도로 369",
-                "정문 안내소",
-                "09:00~18:00",
-                "126.9800000",
-                "37.5200000"
-        );
-
         List<NearbyLostCenterResponse> responses = lostCenterService.findNearbyByFoundItem(
                 foundItem.getId(),
                 finder.getId()
@@ -109,13 +75,17 @@ class LostCenterNearbyIntegrationTest {
 
         assertThat(lostCenterMigrationApplied).isTrue();
         assertThat(responses).hasSize(3);
-        assertThat(responses)
-                .extracting(NearbyLostCenterResponse::name)
-                .containsExactly("가까운 분실물센터", "중간 분실물센터", "먼 분실물센터");
+        assertThat(responses.get(0).centerKey()).isEqualTo("ssu_primary_student_service_team");
         assertThat(responses.get(0).distanceMeters()).isLessThan(responses.get(1).distanceMeters());
         assertThat(responses.get(1).distanceMeters()).isLessThan(responses.get(2).distanceMeters());
-        assertThat(responses.get(0).handoffAvailable()).isEqualTo("yes");
-        assertThat(responses.get(0).verificationStatus()).isEqualTo("official_verified");
+        assertThat(responses).allSatisfy(response -> {
+            assertThat(response.handoffAvailable()).isEqualTo("yes");
+            assertThat(response.verificationStatus()).isIn(
+                    "official_verified",
+                    "official_board_verified",
+                    "official_local_verified"
+            );
+        });
     }
 
     @Test
@@ -145,56 +115,6 @@ class LostCenterNearbyIntegrationTest {
                 .isInstanceOf(LostoryException.class)
                 .extracting("errorCode")
                 .isEqualTo(ErrorCode.FORBIDDEN);
-    }
-
-    private void insertLostCenter(
-            String centerKey,
-            String name,
-            String parentPlace,
-            String phoneNumber,
-            String address,
-            String detailLocation,
-            String operatingHours,
-            String longitude,
-            String latitude
-    ) {
-        jdbcTemplate.update(
-                """
-                INSERT INTO lost_centers (
-                    center_key,
-                    name,
-                    parent_place,
-                    phone_number,
-                    address,
-                    detail_location,
-                    location,
-                    operating_hours,
-                    handoff_available,
-                    verification_status
-                )
-                VALUES (
-                    ?,
-                    ?,
-                    ?,
-                    ?,
-                    ?,
-                    ?,
-                    ST_SetSRID(ST_MakePoint(?, ?), 4326)::geography,
-                    ?,
-                    'yes',
-                    'official_verified'
-                )
-                """,
-                centerKey,
-                name,
-                parentPlace,
-                phoneNumber,
-                address,
-                detailLocation,
-                new BigDecimal(longitude),
-                new BigDecimal(latitude),
-                operatingHours
-        );
     }
 
     private static String uniqueEmail() {
