@@ -3,28 +3,21 @@ package kr.lostory.backend.lostcenter.application;
 import java.util.List;
 import kr.lostory.backend.common.exception.ErrorCode;
 import kr.lostory.backend.common.exception.LostoryException;
+import kr.lostory.backend.config.LostCenterProperties;
 import kr.lostory.backend.founditem.domain.FoundItem;
 import kr.lostory.backend.founditem.domain.FoundItemRepository;
 import kr.lostory.backend.lostcenter.domain.LostCenterRepository;
 import kr.lostory.backend.lostcenter.presentation.NearbyLostCenterResponse;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
+@RequiredArgsConstructor
 public class LostCenterService {
-
-    private static final int NEARBY_CENTER_LIMIT = 3;
-
     private final FoundItemRepository foundItemRepository;
     private final LostCenterRepository lostCenterRepository;
-
-    public LostCenterService(
-            FoundItemRepository foundItemRepository,
-            LostCenterRepository lostCenterRepository
-    ) {
-        this.foundItemRepository = foundItemRepository;
-        this.lostCenterRepository = lostCenterRepository;
-    }
+    private final LostCenterProperties lostCenterProperties;
 
     @Transactional(readOnly = true)
     public List<NearbyLostCenterResponse> findNearbyByFoundItem(
@@ -54,7 +47,7 @@ public class LostCenterService {
         return lostCenterRepository.findNearby(
                         foundItem.getFoundLatitude(),
                         foundItem.getFoundLongitude(),
-                        NEARBY_CENTER_LIMIT
+                        lostCenterProperties.nearbyLimit()
                 )
                 .stream()
                 .map(NearbyLostCenterResponse::from)

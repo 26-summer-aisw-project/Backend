@@ -31,6 +31,11 @@ public class LostCenterCsvInitializer implements ApplicationRunner {
     private static final String MASTER_RESOURCE = "data/lost_centers_master.csv";
     private static final BigDecimal MAX_LATITUDE = BigDecimal.valueOf(90);
     private static final BigDecimal MAX_LONGITUDE = BigDecimal.valueOf(180);
+    private static final Set<String> APPROVED_VERIFICATION_STATUSES = Set.of(
+            "official_verified",
+            "official_board_verified",
+            "official_local_verified"
+    );
     private static final Set<String> REQUIRED_HEADERS = Set.of(
             "center_id",
             "name",
@@ -51,11 +56,11 @@ public class LostCenterCsvInitializer implements ApplicationRunner {
     @Transactional
     public void run(ApplicationArguments ignored) {
         List<CenterData> centers = readCenters();
-        Map<String, LostCenter> existingCenters = lostCenterRepository.findAllByCenterKeyIn(
+        Map<String, LostCenter> existingCenters = lostCenterRepository.findAllBySourceKeyIn(
                         centers.stream().map(CenterData::centerKey).toList()
                 )
                 .stream()
-                .collect(Collectors.toMap(LostCenter::getCenterKey, Function.identity()));
+                .collect(Collectors.toMap(LostCenter::getSourceKey, Function.identity()));
         List<LostCenter> newCenters = new ArrayList<>();
 
         for (CenterData center : centers) {
@@ -94,7 +99,9 @@ public class LostCenterCsvInitializer implements ApplicationRunner {
                     if (!centerKeys.add(center.centerKey())) {
                         throw invalidRecord(record, "center_id가 중복되었습니다.");
                     }
-                    centers.add(center);
+                    if (center.isEligibleForRecommendation()) {
+                        centers.add(center);
+                    }
                 }
                 if (centers.isEmpty()) {
                     throw new IllegalStateException("분실물센터 마스터 CSV에 데이터가 없습니다: " + MASTER_RESOURCE);
@@ -141,12 +148,12 @@ public class LostCenterCsvInitializer implements ApplicationRunner {
                     required(record, "center_id"),
                     required(record, "name"),
                     optional(record, "parent_place"),
-                    optional(record, "phone"),
+                    required(record, "phone"),
                     required(record, "address"),
                     optional(record, "detail_location"),
                     coordinate(record, "lat", MAX_LATITUDE),
                     coordinate(record, "lng", MAX_LONGITUDE),
-                    optional(record, "operating_hours"),
+                    required(record, "operating_hours"),
                     required(record, "handoff_available"),
                     required(record, "verification_status")
             );
@@ -157,13 +164,12 @@ public class LostCenterCsvInitializer implements ApplicationRunner {
                     centerKey,
                     name,
                     parentPlace,
-                    phoneNumber,
                     address,
                     detailLocation,
                     latitude,
                     longitude,
+                    phoneNumber,
                     operatingHours,
-                    handoffAvailable,
                     verificationStatus
             );
         }
@@ -172,15 +178,19 @@ public class LostCenterCsvInitializer implements ApplicationRunner {
             center.synchronize(
                     name,
                     parentPlace,
-                    phoneNumber,
                     address,
                     detailLocation,
                     latitude,
                     longitude,
+                    phoneNumber,
                     operatingHours,
-                    handoffAvailable,
                     verificationStatus
             );
+        }
+
+        private boolean isEligibleForRecommendation() {
+            return handoffAvailable.equals("yes")
+                    && APPROVED_VERIFICATION_STATUSES.contains(verificationStatus);
         }
 
         private static String required(CSVRecord record, String header) {
