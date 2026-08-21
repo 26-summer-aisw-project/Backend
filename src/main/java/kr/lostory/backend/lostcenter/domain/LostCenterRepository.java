@@ -11,6 +11,8 @@ public interface LostCenterRepository extends JpaRepository<LostCenter, Long> {
 
     List<LostCenter> findAllBySourceKeyIn(Collection<String> sourceKeys);
 
+    long deleteAllByCsvManagedTrueAndSourceKeyNotIn(Collection<String> sourceKeys);
+
     @Query(
             value = """
                     SELECT

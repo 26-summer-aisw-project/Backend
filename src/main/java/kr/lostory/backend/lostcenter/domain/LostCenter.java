@@ -59,6 +59,9 @@ public class LostCenter {
     @Column(name = "is_active", nullable = false)
     private boolean active;
 
+    @Column(name = "is_csv_managed", nullable = false)
+    private boolean csvManaged;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
@@ -139,6 +142,7 @@ public class LostCenter {
         this.operatingHours = operatingHours;
         this.verificationStatus = verificationStatus;
         this.active = true;
+        this.csvManaged = true;
         this.updatedAt = Instant.now();
     }
 

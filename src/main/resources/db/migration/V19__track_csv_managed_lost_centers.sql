@@ -1,0 +1,2 @@
+ALTER TABLE lost_centers
+    ADD COLUMN is_csv_managed BOOLEAN NOT NULL DEFAULT FALSE;

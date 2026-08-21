@@ -56,8 +56,10 @@ public class LostCenterCsvInitializer implements ApplicationRunner {
     @Transactional
     public void run(ApplicationArguments ignored) {
         List<CenterData> centers = readCenters();
+        List<String> eligibleCenterKeys = centers.stream().map(CenterData::centerKey).toList();
+        lostCenterRepository.deleteAllByCsvManagedTrueAndSourceKeyNotIn(eligibleCenterKeys);
         Map<String, LostCenter> existingCenters = lostCenterRepository.findAllBySourceKeyIn(
-                        centers.stream().map(CenterData::centerKey).toList()
+                        eligibleCenterKeys
                 )
                 .stream()
                 .collect(Collectors.toMap(LostCenter::getSourceKey, Function.identity()));
