@@ -10,6 +10,7 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import org.assertj.core.data.Offset;
 
 import kr.lostory.backend.auth.JwtTokenService;
 import kr.lostory.backend.user.domain.User;
@@ -196,7 +197,27 @@ class AuthIntegrationTest {
 		assertThat(createdBody.get("handoverPlaceName").asString()).isEqualTo("학생회관 안내데스크");
 		assertThat(createdBody.get("status").asString()).isEqualTo("ACTIVE");
 		assertThat(foundItem.statusCode()).isEqualTo(200);
-		assertThat(json(foundItem)).isEqualTo(createdBody);
+		JsonNode foundItemBody = json(foundItem);
+		assertThat(fieldNames(foundItemBody)).isEqualTo(FOUND_ITEM_KEYS);
+		assertThat(foundItemBody.get("id").asLong()).isEqualTo(foundItemId);
+		assertThat(foundItemBody.get("finderId").asLong()).isEqualTo(finder.getId());
+		assertThat(foundItemBody.get("name").asString()).isEqualTo(createdBody.get("name").asString());
+		assertThat(foundItemBody.get("category").asString()).isEqualTo(createdBody.get("category").asString());
+		assertThat(foundItemBody.get("description").asString()).isEqualTo(createdBody.get("description").asString());
+		assertThat(foundItemBody.get("foundAt").asString()).isEqualTo(createdBody.get("foundAt").asString());
+		assertThat(foundItemBody.get("foundLatitude").asDouble())
+				.isCloseTo(createdBody.get("foundLatitude").asDouble(), Offset.offset(1e-9));
+		assertThat(foundItemBody.get("foundLongitude").asDouble())
+				.isCloseTo(createdBody.get("foundLongitude").asDouble(), Offset.offset(1e-9));
+		assertThat(foundItemBody.get("foundAddress").asString()).isEqualTo(createdBody.get("foundAddress").asString());
+		assertThat(foundItemBody.get("foundLocationDetail").asString()).isEqualTo(createdBody.get("foundLocationDetail").asString());
+		assertThat(foundItemBody.get("storageMethod").asString()).isEqualTo(createdBody.get("storageMethod").asString());
+		assertThat(foundItemBody.get("storageDescription").isNull()).isEqualTo(createdBody.get("storageDescription").isNull());
+		assertThat(foundItemBody.get("handoverPlaceName").asString()).isEqualTo(createdBody.get("handoverPlaceName").asString());
+		assertThat(foundItemBody.get("status").asString()).isEqualTo(createdBody.get("status").asString());
+		assertThat(foundItemBody.get("createdAt").asText()).isEqualTo(createdBody.get("createdAt").asText());
+		assertThat(foundItemBody.get("updatedAt").asText()).isNotBlank();
+		assertThat(foundItemBody.get("expiredAt").asText()).isNotBlank();
 		assertThat(nearbyCenters.statusCode()).isEqualTo(200);
 		assertThat(nearbyCenters.headers().firstValue("content-type")).hasValueSatisfying(
 				contentType -> assertThat(contentType).startsWith("application/json")
