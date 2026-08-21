@@ -14,6 +14,7 @@ import java.util.concurrent.Executors;
 import kr.lostory.backend.auth.JwtTokenService;
 import kr.lostory.backend.user.domain.User;
 import kr.lostory.backend.user.domain.UserRole;
+import kr.lostory.backend.user.repository.UserRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -35,6 +36,15 @@ class AuthIntegrationTest {
 
 	private static final Set<String> USER_KEYS = Set.of("id", "email", "roles");
 	private static final Set<String> ERROR_KEYS = Set.of("code", "message", "fieldErrors", "timestamp");
+	private static final Set<String> FOUND_ITEM_KEYS = Set.of(
+		"id", "finderId", "name", "category", "description", "foundAt", "foundLatitude", "foundLongitude",
+		"foundAddress", "foundLocationDetail", "storageMethod", "storageDescription", "handoverPlaceName",
+		"status", "createdAt", "updatedAt", "expiredAt"
+	);
+	private static final Set<String> NEARBY_CENTER_KEYS = Set.of(
+		"id", "centerKey", "name", "parentPlace", "address", "detailLocation", "phoneNumber",
+		"operatingHours", "verificationStatus", "latitude", "longitude", "distanceMeters"
+	);
 	private static final String PASSWORD = "Correct-Horse-42";
 
 	@LocalServerPort
@@ -48,6 +58,9 @@ class AuthIntegrationTest {
 
 	@Autowired
 	private JwtTokenService tokenService;
+
+	@Autowired
+	private UserRepository userRepository;
 
 	private final HttpClient httpClient = HttpClient.newHttpClient();
 
@@ -135,6 +148,64 @@ class AuthIntegrationTest {
 		)).isEqualTo("새 사용자");
 		assertError(missingName, 400, "COMMON-001");
 		assertError(blankName, 400, "COMMON-001");
+	}
+
+	@Test
+	void foundItemAndNearbyLostCentersUseExactHttpContracts() throws Exception {
+		// Given
+		User finder = userRepository.saveAndFlush(new User(uniqueEmail(), "test-password-hash"));
+		String token = tokenService.issue(finder).value();
+		String requestBody = """
+				{
+				  "name": "검은 카드지갑",
+				  "category": "WALLET_CARD",
+				  "description": "카드가 여러 장 든 검은색 가죽 카드지갑",
+				  "foundAt": "2026-08-04T18:30:00+09:00",
+				  "foundLatitude": 37.4961234,
+				  "foundLongitude": 126.9575432,
+				  "foundAddress": "서울특별시 동작구 상도로 369",
+				  "foundLocationDetail": "학생회관 2층",
+				  "storageMethod": "HANDED_TO_CENTER",
+				  "handoverPlaceName": "학생회관 안내데스크"
+				}
+				""";
+
+		// When
+		HttpResponse<String> created = authorizedPost("/api/v1/found-items", requestBody, token);
+		JsonNode createdBody = json(created);
+		long foundItemId = createdBody.get("id").asLong();
+		HttpResponse<String> foundItem = get("/api/v1/found-items/" + foundItemId, token);
+		HttpResponse<String> nearbyCenters = get(
+				"/api/v1/found-items/" + foundItemId + "/nearby-lost-centers",
+				token
+		);
+
+		// Then
+		assertThat(created.statusCode()).isEqualTo(201);
+		assertThat(created.headers().firstValue("location")).hasValue("/api/v1/found-items/" + foundItemId);
+		assertThat(fieldNames(createdBody)).isEqualTo(FOUND_ITEM_KEYS);
+		assertThat(createdBody.get("finderId").asLong()).isEqualTo(finder.getId());
+		assertThat(createdBody.get("name").asString()).isEqualTo("검은 카드지갑");
+		assertThat(createdBody.get("foundAt").asString()).isEqualTo("2026-08-04T09:30:00Z");
+		assertThat(createdBody.get("storageMethod").asString()).isEqualTo("HANDED_TO_CENTER");
+		assertThat(createdBody.get("storageDescription").isNull()).isTrue();
+		assertThat(createdBody.get("handoverPlaceName").asString()).isEqualTo("학생회관 안내데스크");
+		assertThat(createdBody.get("status").asString()).isEqualTo("ACTIVE");
+		assertThat(foundItem.statusCode()).isEqualTo(200);
+		assertThat(json(foundItem)).isEqualTo(createdBody);
+		assertThat(nearbyCenters.statusCode()).isEqualTo(200);
+		assertThat(nearbyCenters.headers().firstValue("content-type")).hasValueSatisfying(
+				contentType -> assertThat(contentType).startsWith("application/json")
+		);
+		JsonNode nearbyCenterBodies = json(nearbyCenters);
+		assertThat(nearbyCenterBodies).hasSize(3).allSatisfy(center ->
+				assertThat(fieldNames(center)).isEqualTo(NEARBY_CENTER_KEYS)
+		);
+		assertThat(nearbyCenterBodies.values().stream().map(center -> center.get("distanceMeters").asDouble()).toList())
+				.isSorted();
+		assertNoSessionCookie(created);
+		assertNoSessionCookie(foundItem);
+		assertNoSessionCookie(nearbyCenters);
 	}
 
 	@Test
@@ -237,6 +308,15 @@ class AuthIntegrationTest {
 
 	private HttpResponse<String> rawPost(String path, String body) throws Exception {
 		HttpRequest request = HttpRequest.newBuilder(URI.create("http://localhost:" + port + path))
+			.header("Content-Type", "application/json")
+			.POST(HttpRequest.BodyPublishers.ofString(body))
+			.build();
+		return httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+	}
+
+	private HttpResponse<String> authorizedPost(String path, String body, String token) throws Exception {
+		HttpRequest request = HttpRequest.newBuilder(URI.create("http://localhost:" + port + path))
+			.header("Authorization", "Bearer " + token)
 			.header("Content-Type", "application/json")
 			.POST(HttpRequest.BodyPublishers.ofString(body))
 			.build();
