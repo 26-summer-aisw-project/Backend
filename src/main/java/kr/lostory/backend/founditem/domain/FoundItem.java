@@ -12,6 +12,7 @@ import jakarta.persistence.Table;
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import lombok.Getter;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
@@ -114,7 +115,7 @@ public class FoundItem {
         this.storageDescription = storageDescription;
         this.handoverPlaceName = handoverPlaceName;
         this.status = FoundItemStatus.ACTIVE;
-        this.createdAt = Instant.now();
+        this.createdAt = Instant.now().truncatedTo(ChronoUnit.MICROS);
         this.updatedAt = this.createdAt;
         this.expiredAt = this.createdAt.plus(DEFAULT_EXPIRATION_PERIOD);
     }
@@ -129,6 +130,6 @@ public class FoundItem {
 
     @PreUpdate
     void updateTimestamp() {
-        this.updatedAt = Instant.now();
+        this.updatedAt = Instant.now().truncatedTo(ChronoUnit.MICROS);
     }
 }
