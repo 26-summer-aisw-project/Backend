@@ -33,7 +33,10 @@ class JwtConfigurationTest {
 	void missingAndBlankIssuerFailStartup() {
 		assertRejected(new ApplicationContextRunner()
 			.withUserConfiguration(JwtConfiguration.class)
-			.withPropertyValues("app.jwt.secret=" + VALID_SECRET, "app.jwt.access-token-ttl=PT15M"), "issuer", null);
+			.withPropertyValues(
+				"app.jwt.secret=" + VALID_SECRET,
+				"app.jwt.access-token-ttl=PT15M"
+			), "issuer", null);
 		assertRejected(validRunner().withPropertyValues("app.jwt.issuer="), "issuer", null);
 	}
 
@@ -41,7 +44,10 @@ class JwtConfigurationTest {
 	void malformedSecretsFailStartupWithoutDisclosure() {
 		assertRejected(new ApplicationContextRunner()
 			.withUserConfiguration(JwtConfiguration.class)
-			.withPropertyValues("app.jwt.issuer=https://issuer.test.invalid", "app.jwt.access-token-ttl=PT15M"), "secret", null);
+			.withPropertyValues(
+				"app.jwt.issuer=https://issuer.test.invalid",
+				"app.jwt.access-token-ttl=PT15M"
+			), "secret", null);
 		assertRejected(validRunner().withPropertyValues("app.jwt.secret=not-base64!"), "Base64", "not-base64!");
 		assertRejected(validRunner().withPropertyValues("app.jwt.secret=MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMQ=="), "32", null);
 	}
@@ -57,9 +63,9 @@ class JwtConfigurationTest {
 		return new ApplicationContextRunner()
 			.withUserConfiguration(JwtConfiguration.class)
 			.withPropertyValues(
-				"app.jwt.issuer=https://issuer.test.invalid",
-				"app.jwt.secret=" + VALID_SECRET,
-				"app.jwt.access-token-ttl=PT15M");
+			"app.jwt.issuer=https://issuer.test.invalid",
+			"app.jwt.secret=" + VALID_SECRET,
+			"app.jwt.access-token-ttl=PT15M");
 	}
 
 	private void assertRejected(ApplicationContextRunner runner, String reason, String exposedSecret) {

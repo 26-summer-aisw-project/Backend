@@ -9,9 +9,17 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
-import java.time.Instant;
-import lombok.Getter;
+import java.math.BigDecimal;
 import java.time.Duration;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
+import lombok.Getter;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
+import org.locationtech.jts.geom.Coordinate;
+import org.locationtech.jts.geom.GeometryFactory;
+import org.locationtech.jts.geom.Point;
+import org.locationtech.jts.geom.PrecisionModel;
 
 @Getter
 @Entity
@@ -19,6 +27,7 @@ import java.time.Duration;
 public class FoundItem {
 
     private static final Duration DEFAULT_EXPIRATION_PERIOD = Duration.ofDays(14);
+    private static final GeometryFactory GEOMETRY_FACTORY = new GeometryFactory(new PrecisionModel(), 4326);
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -39,9 +48,15 @@ public class FoundItem {
     @Column(nullable = false)
     private Instant foundAt;
 
-    // 텍스트로 위치를 받으나, 추후 PostGIS 좌표 기반 위치로 변경 예정
-    @Column(nullable = false, length = 255)
-    private String foundLocationText;
+    @JdbcTypeCode(SqlTypes.GEOGRAPHY)
+    @Column(name = "found_location", columnDefinition = "geography(Point, 4326)")
+    private Point foundLocation;
+
+    @Column(length = 255)
+    private String foundAddress;
+
+    @Column(length = 255)
+    private String foundLocationDetail;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 30)
@@ -75,7 +90,10 @@ public class FoundItem {
             String category,
             String description,
             Instant foundAt,
-            String foundLocationText,
+            BigDecimal foundLatitude,
+            BigDecimal foundLongitude,
+            String foundAddress,
+            String foundLocationDetail,
             StorageMethod storageMethod,
             String storageDescription,
             String handoverPlaceName
@@ -85,18 +103,33 @@ public class FoundItem {
         this.category = category;
         this.description = description;
         this.foundAt = foundAt;
-        this.foundLocationText = foundLocationText;
+        this.foundLocation = foundLatitude == null || foundLongitude == null
+                ? null
+                : GEOMETRY_FACTORY.createPoint(new Coordinate(
+                        foundLongitude.doubleValue(),
+                        foundLatitude.doubleValue()
+                ));
+        this.foundAddress = foundAddress;
+        this.foundLocationDetail = foundLocationDetail;
         this.storageMethod = storageMethod;
         this.storageDescription = storageDescription;
         this.handoverPlaceName = handoverPlaceName;
         this.status = FoundItemStatus.ACTIVE;
-        this.createdAt = Instant.now();
+        this.createdAt = Instant.now().truncatedTo(ChronoUnit.MICROS);
         this.updatedAt = this.createdAt;
         this.expiredAt = this.createdAt.plus(DEFAULT_EXPIRATION_PERIOD);
     }
 
+    public BigDecimal getFoundLatitude() {
+        return foundLocation == null ? null : BigDecimal.valueOf(foundLocation.getY());
+    }
+
+    public BigDecimal getFoundLongitude() {
+        return foundLocation == null ? null : BigDecimal.valueOf(foundLocation.getX());
+    }
+
     @PreUpdate
     void updateTimestamp() {
-        this.updatedAt = Instant.now();
+        this.updatedAt = Instant.now().truncatedTo(ChronoUnit.MICROS);
     }
 }

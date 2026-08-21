@@ -113,7 +113,10 @@ class ErdEntityPersistenceIntegrationTest {
 				"WALLET",
 				"검은색 카드 지갑",
 				now,
+				null,
+				null,
 				"중앙도서관",
+				null,
 				StorageMethod.HANDED_TO_CENTER,
 				null,
 				center.getName()
