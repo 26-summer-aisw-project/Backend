@@ -22,6 +22,7 @@ import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
+import kr.lostory.backend.config.LostCenterProperties;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
@@ -61,6 +62,9 @@ class AuthIntegrationTest {
 
 	@Autowired
 	private UserRepository userRepository;
+
+	@Autowired
+	private LostCenterProperties lostCenterProperties;
 
 	private final HttpClient httpClient = HttpClient.newHttpClient();
 
@@ -198,7 +202,7 @@ class AuthIntegrationTest {
 				contentType -> assertThat(contentType).startsWith("application/json")
 		);
 		JsonNode nearbyCenterBodies = json(nearbyCenters);
-		assertThat(nearbyCenterBodies).hasSize(3).allSatisfy(center ->
+		assertThat(nearbyCenterBodies).hasSize(lostCenterProperties.nearbyLimit()).allSatisfy(center ->
 				assertThat(fieldNames(center)).isEqualTo(NEARBY_CENTER_KEYS)
 		);
 		assertThat(nearbyCenterBodies.values().stream().map(center -> center.get("distanceMeters").asDouble()).toList())
