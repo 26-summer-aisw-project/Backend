@@ -1,0 +1,338 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LOSTORY D0 Data Model</title>
+  <link href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@400;500&family=IBM+Plex+Mono:wght@400;500&family=Inter:wght@400;500&family=Noto+Sans+KR:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --parchment: #f7f7f4;
+      --bone: #f2f1ed;
+      --linen: #e6e5e0;
+      --stone: #cdcdc9;
+      --mist: #a1a19f;
+      --driftwood: #84847e;
+      --ash: #7a7974;
+      --ink: #26251e;
+      --ember: #f54e00;
+      --amber: #c08532;
+      --crimson: #cf2d56;
+      --sans: "Inter", "Noto Sans KR", sans-serif;
+      --serif: "EB Garamond", "Noto Serif KR", serif;
+      --mono: "IBM Plex Mono", "Noto Sans Mono CJK KR", monospace;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: var(--parchment);
+      color: var(--ink);
+      font-family: var(--sans);
+      font-feature-settings: "ss08" 1, "ss09" 1, "tnum" 1;
+    }
+
+    main {
+      width: min(100%, 1280px);
+      margin: 0 auto;
+      padding: 48px 32px 96px;
+    }
+
+    h1, h2 { margin: 0; font-weight: 400; }
+
+    h1 {
+      font-family: var(--sans);
+      font-size: 40px;
+      letter-spacing: -0.022em;
+      line-height: 1;
+    }
+
+    figure { margin: 0 0 96px; }
+    h1 + figure { margin-top: 32px; }
+
+    figcaption {
+      display: flex;
+      align-items: baseline;
+      gap: 16px;
+      margin: 0 0 24px;
+    }
+
+    h2 {
+      font-family: var(--sans);
+      font-size: 24px;
+      letter-spacing: -0.012em;
+      line-height: 1.33;
+    }
+
+    .caption-note { color: var(--ash); font: 400 12px/1.4 var(--mono); }
+    svg { display: block; width: 100%; height: auto; }
+
+    .connector {
+      fill: none;
+      stroke: var(--ash);
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      stroke-width: 1.2;
+    }
+
+    .node .mask { fill: var(--parchment); }
+    .node .box { fill: var(--bone); stroke: var(--stone); stroke-width: 1; }
+    .node.focus .box { fill: var(--linen); stroke: var(--driftwood); stroke-width: 1.2; }
+    .node .tag-box { fill: var(--crimson); stroke: var(--crimson); stroke-width: 0.8; }
+    .node.focus .tag-box { stroke: var(--crimson); }
+    .node .header-box { fill: var(--ink); }
+    .node .separator { stroke: var(--stone); stroke-width: 0.8; }
+    .node .tag, .field, .cardinality, .legend-text { font-family: var(--mono); }
+    .node .tag { fill: var(--parchment); font-size: 8px; font-weight: 500; letter-spacing: 0.08em; }
+    .node .entity { fill: var(--parchment); font-family: var(--sans); font-size: 12px; font-weight: 500; letter-spacing: -0.01em; }
+    .field { fill: var(--ink); font-size: 8px; }
+    .field.pk, .legend-text.pk { fill: var(--ember); }
+    .field.fk, .legend-text.fk { fill: var(--amber); }
+    .field .key { fill: var(--ember); font-weight: 500; }
+    .field .fk { fill: var(--amber); font-weight: 500; }
+    .field .optional { fill: var(--ash); }
+    .cardinality { fill: var(--driftwood); font-size: 8px; }
+    .legend-rule { stroke: var(--stone); stroke-width: 0.8; }
+    .legend-title { fill: var(--ash); font: 500 8px/1 var(--mono); letter-spacing: 0.14em; }
+    .legend-text { fill: var(--ash); font-size: 8px; }
+
+    @media (max-width: 767px) {
+      main { padding: 32px 16px 64px; }
+      h1 { font-size: 32px; }
+      figcaption { align-items: flex-start; flex-direction: column; gap: 8px; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>LOSTORY DATA MODEL</h1>
+
+    <figure>
+      <figcaption>
+        <h2>습득·신고·매칭</h2>
+        <span class="caption-note">8 ENTITIES / 8 RELATIONSHIPS</span>
+      </figcaption>
+      <svg viewBox="0 0 1280 1040" role="img" aria-labelledby="lostory-cursor-core-title lostory-cursor-core-desc">
+        <title id="lostory-cursor-core-title">LOSTORY 습득물, 분실 신고, 후보 매칭 ERD</title>
+        <desc id="lostory-cursor-core-desc">사용자, 분실물 센터, 습득물, 이미지, 특징, 분실 신고, 경유지, 매칭 후보의 외래 키 관계를 보여주는 ERD입니다.</desc>
+        <defs>
+          <marker id="cursor-core-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><polygon points="0 0, 8 4, 0 8" fill="#7a7974"/></marker>
+          <marker id="cursor-core-arrow-accent" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><polygon points="0 0, 8 4, 0 8" fill="#f54e00"/></marker>
+          <marker id="cursor-core-arrow-link" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><polygon points="0 0, 8 4, 0 8" fill="#84847e"/></marker>
+        </defs>
+        <rect width="1280" height="1040" fill="#f7f7f4"/>
+
+        <path class="connector" d="M600 252 V296 Q600 304 592 304 H468 Q460 304 460 312 V360"/>
+        <path class="connector" d="M680 252 V312 Q680 320 688 320 H792 Q800 320 800 328 V360"/>
+        <path class="connector" d="M280 464 H320"/>
+        <path class="connector" d="M400 600 V648 Q400 656 392 656 H188 Q180 656 180 664 V700"/>
+        <path class="connector" d="M500 600 V700"/>
+        <path class="connector" d="M560 600 V648 Q560 656 568 656 H712 Q720 656 720 664 V700"/>
+        <path class="connector" d="M800 600 V648 Q800 656 808 656 H1112 Q1120 656 1120 664 V700"/>
+        <path class="connector" d="M880 600 V700"/>
+
+        <text class="cardinality" x="616" y="272">1</text><text class="cardinality" x="472" y="344">0..N</text>
+        <text class="cardinality" x="696" y="272">1</text><text class="cardinality" x="812" y="344">0..N</text>
+        <text class="cardinality" x="288" y="448">0..N</text><text class="cardinality" x="328" y="448">0..1</text>
+        <text class="cardinality" x="412" y="624">0..N</text><text class="cardinality" x="192" y="688">1</text>
+        <text class="cardinality" x="512" y="624">0..N</text><text class="cardinality" x="512" y="688">1</text>
+        <text class="cardinality" x="572" y="680">0..N</text><text class="cardinality" x="728" y="688">1</text>
+        <text class="cardinality" x="816" y="680">0..N</text><text class="cardinality" x="1128" y="688">1</text>
+        <text class="cardinality" x="892" y="624">0..N</text><text class="cardinality" x="892" y="688">1</text>
+
+        <g class="node" transform="translate(520 72)">
+          <rect class="mask" width="240" height="180" rx="4"/><rect class="box" width="240" height="180" rx="4"/>
+          <path class="header-box" d="M4 0 H236 Q240 0 240 4 V40 H0 V4 Q0 0 4 0 Z"/><rect class="tag-box" x="12" y="12" width="48" height="16" rx="4"/>
+          <text class="tag" x="36" y="24" text-anchor="middle">ENTITY</text><text class="entity" x="80" y="24">USERS</text><line class="separator" x1="12" y1="40" x2="228" y2="40"/>
+          <text class="field pk" x="16" y="56"><tspan class="key">#</tspan> id bigint</text><text class="field" x="16" y="72">email text · UQ</text>
+          <text class="field" x="16" y="88">password_hash text</text><text class="field" x="16" y="104">display_name varchar(50)</text>
+          <text class="field" x="16" y="120">status text</text><text class="field" x="16" y="136">role text</text>
+          <text class="field" x="16" y="152">created_at timestamptz</text><text class="field" x="16" y="168">updated_at timestamptz</text>
+        </g>
+
+        <g class="node" transform="translate(40 364)">
+          <rect class="mask" width="240" height="200" rx="4"/><rect class="box" width="240" height="200" rx="4"/>
+          <path class="header-box" d="M4 0 H236 Q240 0 240 4 V40 H0 V4 Q0 0 4 0 Z"/><rect class="tag-box" x="12" y="12" width="48" height="16" rx="4"/>
+          <text class="tag" x="36" y="24" text-anchor="middle">ENTITY</text><text class="entity" x="80" y="24">LOST_CENTERS</text><line class="separator" x1="12" y1="40" x2="228" y2="40"/>
+          <text class="field pk" x="16" y="56"><tspan class="key">#</tspan> id bigint</text><text class="field" x="16" y="72">name text</text>
+          <text class="field" x="16" y="88">address text</text><text class="field" x="16" y="104">location geography</text>
+          <text class="field" x="16" y="120">contact_phone text</text><text class="field" x="16" y="136">operating_hours text</text>
+          <text class="field" x="16" y="152">is_active boolean</text><text class="field" x="16" y="168">created_at timestamptz</text>
+          <text class="field" x="16" y="184">updated_at timestamptz</text>
+        </g>
+
+        <g class="node focus" transform="translate(320 360)">
+          <rect class="mask" width="280" height="240" rx="4"/><rect class="box" width="280" height="240" rx="4"/>
+          <path class="header-box" d="M4 0 H276 Q280 0 280 4 V40 H0 V4 Q0 0 4 0 Z"/><rect class="tag-box" x="12" y="12" width="48" height="16" rx="4"/>
+          <text class="tag" x="36" y="24" text-anchor="middle">ENTITY</text><text class="entity" x="80" y="24">FOUND_ITEMS</text><line class="separator" x1="12" y1="40" x2="268" y2="40"/>
+          <text class="field pk" x="16" y="56"><tspan class="key">#</tspan> id bigint</text><text class="field fk" x="16" y="72"><tspan class="fk">→</tspan> finder_id bigint</text>
+          <text class="field" x="16" y="88">category varchar(64)</text><text class="field" x="16" y="104">found_at timestamptz</text>
+          <text class="field" x="16" y="120">found_location geography</text><text class="field" x="16" y="136">status text</text>
+          <text class="field" x="16" y="152">storage_method text</text><text class="field" x="16" y="168">storage_desc text <tspan class="optional">?</tspan></text>
+          <text class="field fk" x="16" y="184"><tspan class="fk">→</tspan> center_id bigint <tspan class="optional">?</tspan></text><text class="field" x="16" y="200">expired_at timestamptz</text>
+          <text class="field" x="16" y="216">created_at timestamptz</text><text class="field" x="16" y="232">updated_at timestamptz</text>
+        </g>
+
+        <g class="node focus" transform="translate(680 360)">
+          <rect class="mask" width="280" height="240" rx="4"/><rect class="box" width="280" height="240" rx="4"/>
+          <path class="header-box" d="M4 0 H276 Q280 0 280 4 V40 H0 V4 Q0 0 4 0 Z"/><rect class="tag-box" x="12" y="12" width="48" height="16" rx="4"/>
+          <text class="tag" x="36" y="24" text-anchor="middle">ENTITY</text><text class="entity" x="80" y="24">LOST_REPORTS</text><line class="separator" x1="12" y1="40" x2="268" y2="40"/>
+          <text class="field pk" x="16" y="56"><tspan class="key">#</tspan> id bigint</text><text class="field fk" x="16" y="72"><tspan class="fk">→</tspan> reporter_id bigint</text>
+          <text class="field" x="16" y="88">category varchar(64)</text><text class="field" x="16" y="104">lost_at_from timestamptz</text>
+          <text class="field" x="16" y="120">lost_at_to timestamptz</text><text class="field" x="16" y="136">description text</text>
+          <text class="field" x="16" y="152">search_radius integer</text><text class="field" x="16" y="168">status text</text>
+          <text class="field" x="16" y="184">expired_at timestamptz</text><text class="field" x="16" y="200">created_at timestamptz</text>
+          <text class="field" x="16" y="216">updated_at timestamptz</text>
+        </g>
+
+        <g class="node" transform="translate(40 700)">
+          <rect class="mask" width="280" height="200" rx="4"/><rect class="box" width="280" height="200" rx="4"/>
+          <path class="header-box" d="M4 0 H276 Q280 0 280 4 V40 H0 V4 Q0 0 4 0 Z"/><rect class="tag-box" x="12" y="12" width="48" height="16" rx="4"/>
+          <text class="tag" x="36" y="24" text-anchor="middle">ENTITY</text><text class="entity" x="80" y="24">FOUND_ITEM_IMAGES</text><line class="separator" x1="12" y1="40" x2="268" y2="40"/>
+          <text class="field pk" x="16" y="56"><tspan class="key">#</tspan> id bigint</text><text class="field fk" x="16" y="72"><tspan class="fk">→</tspan> item_id bigint</text>
+          <text class="field" x="16" y="88">storage_key text · UQ</text><text class="field" x="16" y="104">thumbnail_storage_key text <tspan class="optional">?</tspan></text>
+          <text class="field" x="16" y="120">content_type text</text><text class="field" x="16" y="136">byte_size integer</text>
+          <text class="field" x="16" y="152">sha256 bytea</text><text class="field" x="16" y="168">sort_order smallint</text>
+          <text class="field" x="16" y="184">created_at timestamptz</text>
+        </g>
+
+        <g class="node" transform="translate(360 700)">
+          <rect class="mask" width="280" height="200" rx="4"/><rect class="box" width="280" height="200" rx="4"/>
+          <path class="header-box" d="M4 0 H276 Q280 0 280 4 V40 H0 V4 Q0 0 4 0 Z"/><rect class="tag-box" x="12" y="12" width="48" height="16" rx="4"/>
+          <text class="tag" x="36" y="24" text-anchor="middle">ENTITY</text><text class="entity" x="80" y="24">ITEM_FEATURES</text><line class="separator" x1="12" y1="40" x2="268" y2="40"/>
+          <text class="field pk" x="16" y="56"><tspan class="key">#</tspan> id bigint</text><text class="field fk" x="16" y="72"><tspan class="fk">→</tspan> item_id bigint</text>
+          <text class="field" x="16" y="88">kind text</text><text class="field" x="16" y="104">feature_value text</text>
+          <text class="field" x="16" y="120">ordinal smallint</text><text class="field" x="16" y="136">source text</text>
+          <text class="field" x="16" y="152">visibility text</text><text class="field" x="16" y="168">confidence numeric(4,3) <tspan class="optional">?</tspan></text>
+          <text class="field" x="16" y="184">created_at timestamptz</text>
+        </g>
+
+        <g class="node" transform="translate(680 700)">
+          <rect class="mask" width="280" height="160" rx="4"/><rect class="box" width="280" height="160" rx="4"/>
+          <path class="header-box" d="M4 0 H276 Q280 0 280 4 V40 H0 V4 Q0 0 4 0 Z"/><rect class="tag-box" x="12" y="12" width="48" height="16" rx="4"/>
+          <text class="tag" x="36" y="24" text-anchor="middle">ENTITY</text><text class="entity" x="80" y="24">MATCH_CANDIDATES</text><line class="separator" x1="12" y1="40" x2="268" y2="40"/>
+          <text class="field pk" x="16" y="56"><tspan class="key">#</tspan> id bigint</text><text class="field fk" x="16" y="72"><tspan class="fk">→</tspan> report_id bigint</text>
+          <text class="field fk" x="16" y="88"><tspan class="fk">→</tspan> item_id bigint</text><text class="field" x="16" y="104">rank smallint</text>
+          <text class="field" x="16" y="120">score numeric(5,2)</text><text class="field" x="16" y="136">score_breakdown jsonb</text>
+          <text class="field" x="16" y="152">created_at timestamptz</text>
+        </g>
+
+        <g class="node" transform="translate(1000 700)">
+          <rect class="mask" width="240" height="144" rx="4"/><rect class="box" width="240" height="144" rx="4"/>
+          <path class="header-box" d="M4 0 H236 Q240 0 240 4 V40 H0 V4 Q0 0 4 0 Z"/><rect class="tag-box" x="12" y="12" width="48" height="16" rx="4"/>
+          <text class="tag" x="36" y="24" text-anchor="middle">ENTITY</text><text class="entity" x="80" y="24">REPORT_WAYPOINTS</text><line class="separator" x1="12" y1="40" x2="228" y2="40"/>
+          <text class="field pk" x="16" y="56"><tspan class="key">#</tspan> id bigint</text><text class="field fk" x="16" y="72"><tspan class="fk">→</tspan> report_id bigint</text>
+          <text class="field" x="16" y="88">ordinal smallint</text><text class="field" x="16" y="104">place_name text <tspan class="optional">?</tspan></text>
+          <text class="field" x="16" y="120">location geography</text><text class="field" x="16" y="136">created_at timestamptz</text>
+        </g>
+
+        <line class="legend-rule" x1="40" y1="936" x2="1240" y2="936"/>
+        <text class="legend-title" x="40" y="972">LEGEND</text>
+        <text class="legend-text pk" x="160" y="972"><tspan fill="#f54e00">#</tspan> PRIMARY KEY</text>
+        <text class="legend-text fk" x="344" y="972"><tspan fill="#c08532">→</tspan> FOREIGN KEY</text>
+        <text class="legend-text" x="560" y="972">? NULLABLE</text>
+        <text class="legend-text" x="736" y="972">1 / 0..N CARDINALITY</text>
+        <text class="legend-text" x="1016" y="972">LINEN = PRIMARY DOMAIN</text>
+      </svg>
+    </figure>
+
+    <figure>
+      <figcaption>
+        <h2>포인트·접근 권한·감사</h2>
+        <span class="caption-note">6 ENTITIES / 5 RELATIONSHIPS</span>
+      </figcaption>
+      <svg viewBox="0 0 1280 1040" role="img" aria-labelledby="lostory-cursor-governance-title lostory-cursor-governance-desc">
+        <title id="lostory-cursor-governance-title">LOSTORY 포인트와 감사 ERD</title>
+        <desc id="lostory-cursor-governance-desc">사용자, 분실 신고, 포인트 지갑과 기록, 후보 접근 권한, 감사 로그의 외래 키 관계를 보여주는 ERD입니다.</desc>
+        <defs>
+          <marker id="cursor-governance-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><polygon points="0 0, 8 4, 0 8" fill="#7a7974"/></marker>
+          <marker id="cursor-governance-arrow-accent" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><polygon points="0 0, 8 4, 0 8" fill="#f54e00"/></marker>
+          <marker id="cursor-governance-arrow-link" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><polygon points="0 0, 8 4, 0 8" fill="#84847e"/></marker>
+        </defs>
+        <rect width="1280" height="1040" fill="#f7f7f4"/>
+
+        <path class="connector" d="M280 448 H312 Q320 448 320 440 V320 Q320 312 328 312 H360"/>
+        <path class="connector" d="M280 528 H312 Q320 528 320 536 V652 Q320 660 328 660 H360"/>
+        <path class="connector" d="M280 560 H312 Q320 560 320 552 V88 Q320 80 328 80 H1112 Q1120 80 1120 88 V400"/>
+        <path class="connector" d="M840 360 V560"/>
+        <path class="connector" d="M640 648 H720"/>
+
+        <text class="cardinality" x="288" y="432">1</text><text class="cardinality" x="336" y="296">0..1</text>
+        <text class="cardinality" x="288" y="512">1</text><text class="cardinality" x="336" y="648">0..N</text>
+        <text class="cardinality" x="288" y="544">0..N</text><text class="cardinality" x="1128" y="384">0..1</text>
+        <text class="cardinality" x="852" y="384">0..1</text><text class="cardinality" x="852" y="544">1</text>
+        <text class="cardinality" x="652" y="632">0..1</text><text class="cardinality" x="728" y="632">1</text>
+
+        <g class="node" transform="translate(40 400)">
+          <rect class="mask" width="240" height="180" rx="4"/><rect class="box" width="240" height="180" rx="4"/>
+          <path class="header-box" d="M4 0 H236 Q240 0 240 4 V40 H0 V4 Q0 0 4 0 Z"/><rect class="tag-box" x="12" y="12" width="48" height="16" rx="4"/>
+          <text class="tag" x="36" y="24" text-anchor="middle">ENTITY</text><text class="entity" x="80" y="24">USERS</text><line class="separator" x1="12" y1="40" x2="228" y2="40"/>
+          <text class="field pk" x="16" y="56"><tspan class="key">#</tspan> id bigint</text><text class="field" x="16" y="72">email text · UQ</text>
+          <text class="field" x="16" y="88">password_hash text</text><text class="field" x="16" y="104">display_name varchar(50)</text>
+          <text class="field" x="16" y="120">status text</text><text class="field" x="16" y="136">role text</text>
+          <text class="field" x="16" y="152">created_at timestamptz</text><text class="field" x="16" y="168">updated_at timestamptz</text>
+        </g>
+
+        <g class="node" transform="translate(360 240)">
+          <rect class="mask" width="240" height="128" rx="4"/><rect class="box" width="240" height="128" rx="4"/>
+          <path class="header-box" d="M4 0 H236 Q240 0 240 4 V40 H0 V4 Q0 0 4 0 Z"/><rect class="tag-box" x="12" y="12" width="48" height="16" rx="4"/>
+          <text class="tag" x="36" y="24" text-anchor="middle">ENTITY</text><text class="entity" x="80" y="24">POINT_ACCOUNTS</text><line class="separator" x1="12" y1="40" x2="228" y2="40"/>
+          <text class="field fk" x="16" y="56"><tspan class="key">#</tspan><tspan class="fk"> →</tspan> user_id bigint</text><text class="field" x="16" y="72">balance integer</text>
+          <text class="field" x="16" y="88">created_at timestamptz</text><text class="field" x="16" y="104">updated_at timestamptz</text>
+        </g>
+
+        <g class="node" transform="translate(360 560)">
+          <rect class="mask" width="280" height="180" rx="4"/><rect class="box" width="280" height="180" rx="4"/>
+          <path class="header-box" d="M4 0 H276 Q280 0 280 4 V40 H0 V4 Q0 0 4 0 Z"/><rect class="tag-box" x="12" y="12" width="48" height="16" rx="4"/>
+          <text class="tag" x="36" y="24" text-anchor="middle">ENTITY</text><text class="entity" x="80" y="24">POINT_LEDGER</text><line class="separator" x1="12" y1="40" x2="268" y2="40"/>
+          <text class="field pk" x="16" y="56"><tspan class="key">#</tspan> id bigint</text><text class="field fk" x="16" y="72"><tspan class="fk">→</tspan> user_id bigint</text>
+          <text class="field" x="16" y="88">entry_type text</text><text class="field" x="16" y="104">amount integer</text>
+          <text class="field" x="16" y="120">idempotency_key uuid · UQ</text><text class="field" x="16" y="136">reason text <tspan class="optional">?</tspan></text>
+          <text class="field" x="16" y="152">created_at timestamptz</text>
+        </g>
+
+        <g class="node" transform="translate(720 120)">
+          <rect class="mask" width="280" height="240" rx="4"/><rect class="box" width="280" height="240" rx="4"/>
+          <path class="header-box" d="M4 0 H276 Q280 0 280 4 V40 H0 V4 Q0 0 4 0 Z"/><rect class="tag-box" x="12" y="12" width="48" height="16" rx="4"/>
+          <text class="tag" x="36" y="24" text-anchor="middle">ENTITY</text><text class="entity" x="80" y="24">LOST_REPORTS</text><line class="separator" x1="12" y1="40" x2="268" y2="40"/>
+          <text class="field pk" x="16" y="56"><tspan class="key">#</tspan> id bigint</text><text class="field fk" x="16" y="72"><tspan class="fk">→</tspan> reporter_id bigint</text>
+          <text class="field" x="16" y="88">category varchar(64)</text><text class="field" x="16" y="104">lost_at_from timestamptz</text>
+          <text class="field" x="16" y="120">lost_at_to timestamptz</text><text class="field" x="16" y="136">description text</text>
+          <text class="field" x="16" y="152">search_radius integer</text><text class="field" x="16" y="168">status text</text>
+          <text class="field" x="16" y="184">expired_at timestamptz</text><text class="field" x="16" y="200">created_at timestamptz</text>
+          <text class="field" x="16" y="216">updated_at timestamptz</text>
+        </g>
+
+        <g class="node focus" transform="translate(720 560)">
+          <rect class="mask" width="280" height="128" rx="4"/><rect class="box" width="280" height="128" rx="4"/>
+          <path class="header-box" d="M4 0 H276 Q280 0 280 4 V40 H0 V4 Q0 0 4 0 Z"/><rect class="tag-box" x="12" y="12" width="48" height="16" rx="4"/>
+          <text class="tag" x="36" y="24" text-anchor="middle">ENTITY</text><text class="entity" x="80" y="24">CANDIDATE_ACCESSES</text><line class="separator" x1="12" y1="40" x2="268" y2="40"/>
+          <text class="field pk" x="16" y="56"><tspan class="key">#</tspan> id bigint</text><text class="field fk" x="16" y="72"><tspan class="fk">→</tspan> report_id bigint</text>
+          <text class="field fk" x="16" y="88"><tspan class="fk">→</tspan> user_id bigint</text><text class="field fk" x="16" y="104"><tspan class="fk">→</tspan> debit_transaction_id bigint</text>
+          <text class="field" x="16" y="120">unlocked_at timestamptz</text>
+        </g>
+
+        <g class="node" transform="translate(1040 400)">
+          <rect class="mask" width="200" height="160" rx="4"/><rect class="box" width="200" height="160" rx="4"/>
+          <path class="header-box" d="M4 0 H196 Q200 0 200 4 V40 H0 V4 Q0 0 4 0 Z"/><rect class="tag-box" x="12" y="12" width="48" height="16" rx="4"/>
+          <text class="tag" x="36" y="24" text-anchor="middle">ENTITY</text><text class="entity" x="80" y="24">AUDIT_LOGS</text><line class="separator" x1="12" y1="40" x2="188" y2="40"/>
+          <text class="field pk" x="16" y="56"><tspan class="key">#</tspan> id bigint</text><text class="field fk" x="16" y="72"><tspan class="fk">→</tspan> user_id bigint <tspan class="optional">?</tspan></text>
+          <text class="field" x="16" y="88">action text</text><text class="field" x="16" y="104">target_type text <tspan class="optional">?</tspan></text>
+          <text class="field" x="16" y="120">target_id bigint <tspan class="optional">?</tspan></text><text class="field" x="16" y="136">metadata_json jsonb</text>
+          <text class="field" x="16" y="152">occurred_at timestamptz</text>
+        </g>
+
+        <line class="legend-rule" x1="40" y1="936" x2="1240" y2="936"/>
+        <text class="legend-title" x="40" y="972">LEGEND</text>
+        <text class="legend-text pk" x="160" y="972"><tspan fill="#f54e00">#</tspan> PRIMARY KEY</text>
+        <text class="legend-text fk" x="344" y="972"><tspan fill="#c08532">→</tspan> FOREIGN KEY</text>
+        <text class="legend-text" x="560" y="972">? NULLABLE</text>
+        <text class="legend-text" x="736" y="972">1 / 0..N CARDINALITY</text>
+        <text class="legend-text" x="1016" y="972">LINEN = PRIMARY DOMAIN</text>
+      </svg>
+    </figure>
+
+  </main>
+</body>
+</html>
