@@ -77,7 +77,7 @@ class FoundItemPersistenceIntegrationTest {
         assertThat(reloaded.getFoundLocationDetail()).isEqualTo("학생회관 2층");
         assertThat(reloaded.getStorageMethod()).isEqualTo(StorageMethod.HANDED_TO_CENTER);
         assertThat(reloaded.getStorageDescription()).isNull();
-        assertThat(reloaded.getHandoverPlaceName()).isEqualTo("Student center information desk");
+        assertThat(reloaded.getLegacyHandoverPlaceName()).isEqualTo("Student center information desk");
         assertThat(reloaded.getStatus()).isEqualTo(FoundItemStatus.ACTIVE);
         assertThat(reloaded.getCreatedAt()).isNotNull();
         assertThat(reloaded.getUpdatedAt()).isNotNull();

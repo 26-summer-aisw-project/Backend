@@ -12,6 +12,8 @@ import jakarta.persistence.Id;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
 import lombok.Getter;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 @Getter
 @Entity
@@ -39,6 +41,25 @@ public class LostReport {
 
 	@Column(name = "search_radius", nullable = false)
 	private int searchRadius;
+
+	@Column(name = "effective_search_radius_meters", nullable = false)
+	private int effectiveSearchRadiusMeters;
+
+	@Column(name = "radius_policy_version", nullable = false, length = 64)
+	private String radiusPolicyVersion;
+
+	@JdbcTypeCode(SqlTypes.JSON)
+	@Column(name = "center_guidance", nullable = false, columnDefinition = "jsonb")
+	private String centerGuidance;
+
+	@Column(name = "candidates_stale", nullable = false)
+	private boolean candidatesStale;
+
+	@Column(name = "last_matched_at")
+	private Instant lastMatchedAt;
+
+	@Column(name = "matching_policy_version", nullable = false, length = 64)
+	private String matchingPolicyVersion;
 
 	@Enumerated(EnumType.STRING)
 	@Column(nullable = false)
@@ -71,6 +92,11 @@ public class LostReport {
 		this.lostAtTo = lostAtTo;
 		this.description = description;
 		this.searchRadius = searchRadius;
+		this.effectiveSearchRadiusMeters = Math.min(3_000, Math.max(500, searchRadius));
+		this.radiusPolicyVersion = "p0-radius-v1";
+		this.centerGuidance = "[]";
+		this.candidatesStale = true;
+		this.matchingPolicyVersion = "p0-matching-v1";
 		this.status = LostReportStatus.OPEN;
 		this.expiredAt = expiredAt;
 		this.createdAt = Instant.now();
