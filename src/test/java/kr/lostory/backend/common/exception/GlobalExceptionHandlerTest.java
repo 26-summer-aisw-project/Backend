@@ -26,12 +26,10 @@ class GlobalExceptionHandlerTest {
         assertThat(response.getBody()).isNotNull();
         assertThat(response.getBody().code()).isEqualTo("COMMON-004");
         assertThat(response.getBody().message()).isEqualTo("The requested resource could not be found.");
-        assertThat(response.getBody().fieldErrors()).isEmpty();
-        assertThat(response.getBody().timestamp()).isNotNull();
     }
 
     @Test
-    void handleMethodArgumentNotValidExceptionReturnsFieldErrors() throws NoSuchMethodException {
+    void handleMethodArgumentNotValidExceptionReturnsInvalidRequest() throws NoSuchMethodException {
         GlobalExceptionHandler handler = new GlobalExceptionHandler();
         TestRequest request = new TestRequest("");
         BeanPropertyBindingResult bindingResult = new BeanPropertyBindingResult(request, "testRequest");
@@ -48,10 +46,6 @@ class GlobalExceptionHandlerTest {
         assertThat(response.getBody()).isNotNull();
         assertThat(response.getBody().code()).isEqualTo("COMMON-001");
         assertThat(response.getBody().message()).isEqualTo("The request is invalid.");
-        assertThat(response.getBody().fieldErrors()).hasSize(1);
-        assertThat(response.getBody().fieldErrors().getFirst().field()).isEqualTo("title");
-        assertThat(response.getBody().fieldErrors().getFirst().message()).isEqualTo("must not be blank");
-        assertThat(response.getBody().timestamp()).isNotNull();
     }
 
     @Test
@@ -68,7 +62,6 @@ class GlobalExceptionHandlerTest {
         assertThat(response.getBody()).isNotNull();
         assertThat(response.getBody().code()).isEqualTo("COMMON-001");
         assertThat(response.getBody().message()).isEqualTo("The request is invalid.");
-        assertThat(response.getBody().fieldErrors()).isEmpty();
     }
 
     @Test

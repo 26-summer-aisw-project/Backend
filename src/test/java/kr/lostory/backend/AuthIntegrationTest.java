@@ -37,7 +37,7 @@ import static org.mockito.Mockito.when;
 class AuthIntegrationTest {
 
 	private static final Set<String> USER_KEYS = Set.of("id", "email", "roles");
-	private static final Set<String> ERROR_KEYS = Set.of("code", "message", "fieldErrors", "timestamp");
+	private static final Set<String> ERROR_KEYS = Set.of("code", "message");
 	private static final Set<String> FOUND_ITEM_KEYS = Set.of(
 		"id", "finderId", "name", "category", "description", "foundAt", "foundLatitude", "foundLongitude",
 		"foundAddress", "foundLocationDetail", "storageMethod", "storageDescription", "handoverPlaceName",
@@ -388,7 +388,6 @@ class AuthIntegrationTest {
 		return Map.of(
 			"status", response.statusCode(),
 			"code", error.get("code").asString(),
-			"message", error.get("message").asString(),
-			"fieldErrors", error.get("fieldErrors").toString());
+			"message", error.get("message").asString());
 	}
 }
