@@ -53,7 +53,7 @@ import org.springframework.test.context.ActiveProfiles;
 
 @ActiveProfiles("test")
 @Import({PostgresTestContainerConfig.class, VisionJobIntegrationTest.VisionTestConfig.class})
-@SpringBootTest
+@SpringBootTest(properties = "vision.timeout=PT4S")
 class VisionJobIntegrationTest {
 
     private static final byte[] IMAGE_BYTES = new byte[]{1, 2, 3, 4};
@@ -106,8 +106,9 @@ class VisionJobIntegrationTest {
             assertThat(request.features()).containsExactly(
                     VisionProvider.FeatureType.LABEL_DETECTION,
                     VisionProvider.FeatureType.IMAGE_PROPERTIES);
-            assertThat(request.deadline()).isEqualTo(Duration.ofSeconds(10));
+            assertThat(request.deadline()).isEqualTo(Duration.ofSeconds(4));
         });
+        System.out.println("P0_VISION_TIMEOUT_OBSERVABLE configured=PT4S request-deadline=PT4S");
         List<String> aiFeatures = featureRows(fixture.itemId(), "AI");
         assertThat(aiFeatures).containsExactly(
                 "LABEL|wallet|1|0.951|MATCH_ONLY",

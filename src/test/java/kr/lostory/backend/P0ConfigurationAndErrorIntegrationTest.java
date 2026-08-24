@@ -24,11 +24,14 @@ import kr.lostory.backend.user.domain.UserRole;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.context.annotation.Import;
+import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.test.context.ActiveProfiles;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
@@ -223,6 +226,33 @@ class P0ConfigurationAndErrorIntegrationTest {
 		System.out.println("P0_CONFIG_OBSERVABLE invalid-radius-order=rejected");
 	}
 
+	@Test
+	void visionTimeoutBindingAcceptsCeilingAndRejectsNonPositiveAndOverCeiling() {
+		// Given
+		ApplicationContextRunner valid = visionPropertiesRunner("PT10S");
+
+		// When / Then
+		valid.run(context -> {
+			assertThat(context).hasNotFailed();
+			assertThat(context.getBean(VisionProperties.class).timeout()).isEqualTo(Duration.ofSeconds(10));
+		});
+		visionPropertiesRunner("PT0S").run(context -> assertThat(context).hasFailed());
+		visionPropertiesRunner("PT10.000000001S").run(context -> assertThat(context).hasFailed());
+		System.out.println("P0_CONFIG_OBSERVABLE vision-timeout=PT10S accepted zero-and-over-ceiling=rejected");
+	}
+
+	private ApplicationContextRunner visionPropertiesRunner(String timeout) {
+		return new ApplicationContextRunner()
+			.withUserConfiguration(VisionPropertiesBindingConfig.class)
+			.withPropertyValues(
+				"vision.enabled=false",
+				"vision.provider=google-cloud-vision",
+				"vision.processing-region=asia-northeast3",
+				"vision.data-retention=PT0S",
+				"vision.cost-limit-usd=9.50",
+				"vision.timeout=" + timeout);
+	}
+
 	private HttpRequest.Builder request(String path) {
 		return HttpRequest.newBuilder(URI.create("http://localhost:" + port + path));
 	}
@@ -239,5 +269,10 @@ class P0ConfigurationAndErrorIntegrationTest {
 		String encodedSecret = Base64.getEncoder().encodeToString(jwtProperties.secret());
 		assertThat(responseBody).doesNotContain(encodedSecret);
 		assertThat(output.getAll()).doesNotContain(encodedSecret);
+	}
+
+	@TestConfiguration(proxyBeanMethods = false)
+	@EnableConfigurationProperties(VisionProperties.class)
+	static class VisionPropertiesBindingConfig {
 	}
 }

@@ -2,7 +2,6 @@ package kr.lostory.backend.founditem.application;
 
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
 import kr.lostory.backend.common.storage.ObjectStorage;
@@ -19,7 +18,6 @@ public class VisionJobWorker {
     static final String AMBIGUOUS_FINAL_ERROR = "VISION_AMBIGUOUS_FINAL_ATTEMPT";
     static final String MALFORMED_RESPONSE_ERROR = "VISION_MALFORMED_RESPONSE";
     private static final int MAX_ATTEMPTS = 3;
-    private static final Duration REMOTE_DEADLINE = Duration.ofSeconds(10);
     private static final List<VisionProvider.FeatureType> REQUESTED_FEATURES = List.of(
             VisionProvider.FeatureType.LABEL_DETECTION,
             VisionProvider.FeatureType.IMAGE_PROPERTIES);
@@ -77,7 +75,7 @@ public class VisionJobWorker {
         VisionProvider.VisionResult result;
         try {
             result = provider.analyze(imageBytes,
-                    new VisionProvider.VisionRequest(REQUESTED_FEATURES, REMOTE_DEADLINE));
+                    new VisionProvider.VisionRequest(REQUESTED_FEATURES, properties.timeout()));
         } catch (VisionProviderException exception) {
             String error = exception.isAmbiguous() ? "VISION_AMBIGUOUS_ATTEMPT" : "VISION_PROVIDER_FAILURE";
             transactions.executeWithoutResult(status -> failOrRetry(claim, exception.isAmbiguous(), error));

@@ -100,20 +100,21 @@ public class FoundItemService {
             return null;
         }
         String color = null;
-        String description = null;
+        String label = null;
         for (ItemFeature feature : featureRepository
                 .findByItemIdAndSourceAndVisibilityOrderByKindAscOrdinalAsc(
                         item.getId(), ItemFeatureSource.AI, ItemFeatureVisibility.MATCH_ONLY)) {
             if (feature.getKind() == ItemFeatureKind.COLOR && color == null) {
                 color = feature.getFeatureValue();
             }
-            if (feature.getKind() == ItemFeatureKind.PUBLIC_DESCRIPTION && description == null) {
-                description = feature.getFeatureValue();
+            if (feature.getKind() == ItemFeatureKind.LABEL && label == null) {
+                label = feature.getFeatureValue();
             }
         }
-        return color == null && description == null
+        String publicDescription = color == null ? label : label == null ? color : color + " " + label;
+        return publicDescription == null
                 ? null
-                : new FoundItemDetailResponse.VisionSuggestion(color, description);
+                : new FoundItemDetailResponse.VisionSuggestion(color, publicDescription);
     }
 
     private void validateStorage(CreateFoundItemCommand command) {

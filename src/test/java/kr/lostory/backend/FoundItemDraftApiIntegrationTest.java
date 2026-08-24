@@ -115,8 +115,14 @@ class FoundItemDraftApiIntegrationTest {
         assertThat(detailJson.get("visionSuggestion").propertyNames())
                 .containsExactlyInAnyOrder("color", "publicDescription");
         assertThat(detailJson.get("visionSuggestion").get("color").asString()).isEqualTo("BLACK");
-        assertThat(detailJson.get("visionSuggestion").get("publicDescription").isNull()).isTrue();
+        assertThat(detailJson.get("visionSuggestion").get("publicDescription").asString())
+                .isEqualTo("BLACK wallet");
+        assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM item_features WHERE item_id = ? AND source = 'AI' "
+                        + "AND kind = 'PUBLIC_DESCRIPTION'",
+                Integer.class, id)).isZero();
         assertSafe(detail.body());
+        System.out.println("P0_HTTP_VISION_OBSERVABLE color=BLACK publicDescription=BLACK wallet persisted=false");
 
         HttpResponse<String> list = get("/api/v1/found-items?page=1&pageSize=20&status=DRAFT",
                 tokens.issue(owner).value());
@@ -176,6 +182,47 @@ class FoundItemDraftApiIntegrationTest {
         assertThat(Instant.parse(staleJson.get("draftExpiresAt").asString())).isBefore(Instant.now());
         assertSafe(ownerDetail.body());
         assertSafe(adminDetail.body());
+        assertSafe(foreignDetail.body());
+    }
+
+    @Test
+    void ownerVisionSuggestionUsesLowestOrdinalsForColorOnlyLabelOnlyAndNeither() throws Exception {
+        // Given
+        User owner = user(UserRole.USER);
+        String token = tokens.issue(owner).value();
+        String colorOnlyId = create(token);
+        String labelOnlyId = create(token);
+        String neitherId = create(token);
+        jdbc.update("UPDATE found_items SET vision_status = 'READY' WHERE id IN (?, ?, ?)",
+                Long.valueOf(colorOnlyId), Long.valueOf(labelOnlyId), Long.valueOf(neitherId));
+        jdbc.update("""
+                INSERT INTO item_features
+                    (item_id, kind, feature_value, ordinal, source, visibility, confidence)
+                VALUES (?, 'COLOR', 'WHITE', 2, 'AI', 'MATCH_ONLY', 0.8),
+                       (?, 'COLOR', 'BLACK', 1, 'AI', 'MATCH_ONLY', 0.9),
+                       (?, 'LABEL', 'handbag', 2, 'AI', 'MATCH_ONLY', 0.8),
+                       (?, 'LABEL', 'wallet', 1, 'AI', 'MATCH_ONLY', 0.9),
+                       (?, 'PUBLIC_DESCRIPTION', 'private raw summary', 1, 'AI', 'MATCH_ONLY', 0.9)
+                """, Long.valueOf(colorOnlyId), Long.valueOf(colorOnlyId),
+                Long.valueOf(labelOnlyId), Long.valueOf(labelOnlyId), Long.valueOf(neitherId));
+
+        // When
+        JsonNode colorOnly = new ObjectMapper().readTree(
+                get("/api/v1/found-items/" + colorOnlyId, token).body());
+        JsonNode labelOnly = new ObjectMapper().readTree(
+                get("/api/v1/found-items/" + labelOnlyId, token).body());
+        JsonNode neither = new ObjectMapper().readTree(
+                get("/api/v1/found-items/" + neitherId, token).body());
+
+        // Then
+        assertThat(colorOnly.get("visionSuggestion").get("color").asString()).isEqualTo("BLACK");
+        assertThat(colorOnly.get("visionSuggestion").get("publicDescription").asString()).isEqualTo("BLACK");
+        assertThat(labelOnly.get("visionSuggestion").get("color").isNull()).isTrue();
+        assertThat(labelOnly.get("visionSuggestion").get("publicDescription").asString()).isEqualTo("wallet");
+        assertThat(neither.get("visionSuggestion").isNull()).isTrue();
+        assertThat(neither.toString()).doesNotContain("private raw summary");
+        System.out.println("P0_HTTP_VISION_EDGES_OBSERVABLE color-only=BLACK label-only=wallet neither=null "
+                + "private-summary-exposed=false");
     }
 
     @Test
@@ -281,7 +328,7 @@ class FoundItemDraftApiIntegrationTest {
 
     private void assertSafe(String body) {
         assertThat(body).doesNotContain(
-                "finderId", "objectKey", "storageKey", "imageBytes", "confidence", "rawLabel", "wallet");
+                "finderId", "objectKey", "storageKey", "imageBytes", "confidence", "rawLabel");
     }
 
     private record Part(String name, String filename, String contentType, byte[] bytes) {

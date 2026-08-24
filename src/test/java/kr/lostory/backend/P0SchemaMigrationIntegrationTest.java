@@ -620,6 +620,29 @@ class P0SchemaMigrationIntegrationTest {
         System.out.println("P0_SCHEMA_CONSTRAINT_OBSERVABLE legacy-terminal-mutation=rejected");
     }
 
+    @Test
+    void deletesOrdinaryAndDraftRowsButRejectsLegacyTerminalDelete() {
+        // Given
+        migrateFixtureToLatest();
+        jdbc.execute("""
+                INSERT INTO found_items (
+                    id, finder_id, status, vision_status, handover_status, analysis_generation,
+                    created_at, updated_at, draft_expires_at
+                ) VALUES (
+                    310, 101, 'DRAFT', 'PENDING', 'NONE', 1,
+                    '2026-08-04T00:00:00Z', '2026-08-04T00:00:00Z', '2026-08-05T00:00:00Z'
+                )
+                """);
+
+        // When / Then
+        assertThat(jdbc.update("DELETE FROM found_items WHERE id = 304")).isOne();
+        assertThat(jdbc.update("DELETE FROM found_items WHERE id = 310")).isOne();
+        assertThatThrownBy(() -> jdbc.update("DELETE FROM found_items WHERE id = 308"))
+                .hasRootCauseInstanceOf(java.sql.SQLException.class);
+        System.out.println("P0_SCHEMA_CONSTRAINT_OBSERVABLE ordinary-delete=1 draft-delete=1 "
+                + "legacy-terminal-delete=rejected");
+    }
+
     private static void cleanAndMigrate(String target) {
         Flyway flyway = Flyway.configure()
                 .dataSource(dataSource)

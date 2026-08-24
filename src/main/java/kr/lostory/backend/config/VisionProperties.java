@@ -7,6 +7,7 @@ import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import org.hibernate.validator.constraints.time.DurationMin;
+import org.hibernate.validator.constraints.time.DurationMax;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.validation.annotation.Validated;
 
@@ -18,6 +19,6 @@ public record VisionProperties(
 	@NotBlank String processingRegion,
 	@NotNull Duration dataRetention,
 	@NotNull @DecimalMin("0.0") BigDecimal costLimitUsd,
-	@NotNull @DurationMin(nanos = 1) Duration timeout
+	@NotNull @DurationMin(nanos = 1) @DurationMax(seconds = 10) Duration timeout
 ) {
 }
