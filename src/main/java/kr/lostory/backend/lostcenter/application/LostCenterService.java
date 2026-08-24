@@ -2,6 +2,7 @@ package kr.lostory.backend.lostcenter.application;
 
 import java.math.BigDecimal;
 import java.util.Set;
+import kr.lostory.backend.audit.application.P0AuditService;
 import kr.lostory.backend.common.exception.ErrorCode;
 import kr.lostory.backend.common.exception.LostoryException;
 import kr.lostory.backend.config.LostCenterProperties;
@@ -33,6 +34,7 @@ public class LostCenterService {
     private final FoundItemRepository foundItemRepository;
     private final LostCenterRepository lostCenterRepository;
     private final LostCenterProperties lostCenterProperties;
+    private final P0AuditService audit;
 
     @Transactional(readOnly = true)
     public LostCenterListResponse list(int page, int pageSize, String query) {
@@ -73,7 +75,7 @@ public class LostCenterService {
     }
 
     @Transactional
-    public AdminLostCenterResponse update(Long centerId, UpdateLostCenterRequest request) {
+    public AdminLostCenterResponse update(Long centerId, Long requesterId, UpdateLostCenterRequest request) {
         LostCenter center = lostCenterRepository.findById(centerId)
                 .orElseThrow(() -> new LostoryException(ErrorCode.RESOURCE_NOT_FOUND,
                         "분실물센터를 찾을 수 없습니다."));
@@ -91,6 +93,7 @@ public class LostCenterService {
         center.updateDirectoryEntry(new LostCenterDetails(strip(request.name()), strip(request.address()),
                 location == null ? null : location.latitude(), location == null ? null : location.longitude(),
                 strip(request.contactPhone()), request.isActive()));
+        audit.centerDirectoryUpdated(requesterId, centerId);
         return AdminLostCenterResponse.from(center);
     }
 

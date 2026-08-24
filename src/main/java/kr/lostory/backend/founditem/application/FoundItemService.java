@@ -3,6 +3,7 @@ package kr.lostory.backend.founditem.application;
 import java.time.Clock;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
+import kr.lostory.backend.audit.application.P0AuditService;
 import kr.lostory.backend.config.FoundItemProperties;
 import kr.lostory.backend.common.exception.ErrorCode;
 import kr.lostory.backend.common.exception.LostoryException;
@@ -40,6 +41,7 @@ public class FoundItemService {
     private final LostReportRepository reportRepository;
     private final FoundItemProperties properties;
     private final Clock clock;
+    private final P0AuditService audit;
 
     public FoundItemService(
             FoundItemRepository foundItemRepository,
@@ -47,7 +49,8 @@ public class FoundItemService {
             LostCenterRepository centerRepository,
             LostReportRepository reportRepository,
             FoundItemProperties properties,
-            Clock clock
+            Clock clock,
+            P0AuditService audit
     ) {
         this.foundItemRepository = foundItemRepository;
         this.featureRepository = featureRepository;
@@ -55,6 +58,7 @@ public class FoundItemService {
         this.reportRepository = reportRepository;
         this.properties = properties;
         this.clock = clock;
+        this.audit = audit;
     }
 
     @Transactional
@@ -71,6 +75,11 @@ public class FoundItemService {
         if (!item.isRegistrationMutable()) {
             throw new LostoryException(ErrorCode.INVALID_REQUEST);
         }
+        boolean finalizingDraft = item.getStatus() == FoundItemStatus.DRAFT;
+        boolean withdrawingHandover = item.getStorageMethod() == StorageMethod.HANDED_TO_CENTER
+                && request.storageMethod() != StorageMethod.HANDED_TO_CENTER
+                && (item.getStatus() == FoundItemStatus.PENDING_HANDOVER
+                        || item.getHandoverStatus() == HandoverStatus.USER_CONFIRMED);
 
         String category = request.category().trim();
         String color = request.confirmedFeatures().color();
@@ -104,6 +113,12 @@ public class FoundItemService {
         if (!matchingFieldsUnchanged || !confirmedFeaturesUnchanged) {
             reportRepository.markOpenCandidatesStale();
         }
+        if (finalizingDraft) {
+            audit.foundItemFinalized(requesterId, item.getId());
+        }
+        if (withdrawingHandover) {
+            audit.handoverWithdrawn(requesterId, item.getId());
+        }
         return FoundItemRegistrationResponse.from(item);
     }
 
@@ -124,6 +139,7 @@ public class FoundItemService {
             throw new LostoryException(ErrorCode.INVALID_REQUEST);
         }
         item.confirmHandover(clock.instant().truncatedTo(ChronoUnit.MICROS));
+        audit.handoverUserConfirmed(requesterId, item.getId());
         return FoundItemRegistrationResponse.from(item);
     }
 
