@@ -28,7 +28,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class LostCenterService {
     private static final Set<String> DIRECTORY_STATUSES = Set.of(
             "official_verified", "official_board_verified", "official_local_verified", "admin_verified");
-    private static final int P0_NEARBY_RADIUS_METERS = 1000;
+    public static final int P0_NEARBY_RADIUS_METERS = 1000;
     private static final int MAX_NEARBY_RESULTS = 10;
 
     private final FoundItemRepository foundItemRepository;

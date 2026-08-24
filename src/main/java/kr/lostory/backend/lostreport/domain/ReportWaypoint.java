@@ -42,10 +42,14 @@ public class ReportWaypoint {
 	}
 
 	public ReportWaypoint(Long reportId, short ordinal, String placeName, Point location) {
+		this(reportId, ordinal, placeName, location, Instant.now());
+	}
+
+	public ReportWaypoint(Long reportId, short ordinal, String placeName, Point location, Instant createdAt) {
 		this.reportId = reportId;
 		this.ordinal = ordinal;
 		this.placeName = placeName;
 		this.location = location;
-		this.createdAt = Instant.now();
+		this.createdAt = createdAt;
 	}
 }

@@ -1,5 +1,6 @@
 package kr.lostory.backend.lostreport.domain;
 
+import java.time.Duration;
 import java.time.Instant;
 
 import jakarta.persistence.Column;
@@ -9,7 +10,6 @@ import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
-import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
 import lombok.Getter;
 import org.hibernate.annotations.JdbcTypeCode;
@@ -103,8 +103,56 @@ public class LostReport {
 		this.updatedAt = this.createdAt;
 	}
 
-	@PreUpdate
-	void updateTimestamp() {
-		updatedAt = Instant.now();
+	public LostReport(
+			Long reporterId,
+			String category,
+			Instant lostAtFrom,
+			Instant lostAtTo,
+			String description,
+			int effectiveSearchRadiusMeters,
+			String radiusPolicyVersion,
+			String centerGuidance,
+			Instant createdAt,
+			Duration ttl
+	) {
+		this.reporterId = reporterId;
+		replaceSnapshotInputs(
+				category,
+				lostAtFrom,
+				lostAtTo,
+				description,
+				effectiveSearchRadiusMeters,
+				radiusPolicyVersion,
+				centerGuidance,
+				createdAt
+		);
+		this.candidatesStale = true;
+		this.matchingPolicyVersion = "p0-matching-v1";
+		this.status = LostReportStatus.OPEN;
+		this.createdAt = createdAt;
+		this.updatedAt = createdAt;
+		this.expiredAt = createdAt.plus(ttl);
+	}
+
+	public void replaceSnapshotInputs(
+			String category,
+			Instant lostAtFrom,
+			Instant lostAtTo,
+			String description,
+			int effectiveSearchRadiusMeters,
+			String radiusPolicyVersion,
+			String centerGuidance,
+			Instant updatedAt
+	) {
+		this.category = category;
+		this.lostAtFrom = lostAtFrom;
+		this.lostAtTo = lostAtTo;
+		this.description = description;
+		this.searchRadius = effectiveSearchRadiusMeters;
+		this.effectiveSearchRadiusMeters = effectiveSearchRadiusMeters;
+		this.radiusPolicyVersion = radiusPolicyVersion;
+		this.centerGuidance = centerGuidance;
+		this.candidatesStale = true;
+		this.updatedAt = updatedAt;
 	}
 }
