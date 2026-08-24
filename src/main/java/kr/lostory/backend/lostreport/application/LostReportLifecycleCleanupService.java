@@ -53,6 +53,38 @@ public class LostReportLifecycleCleanupService {
     }
 
     @Transactional
+    public Instant databaseNow() {
+        return jdbc.queryForObject("SELECT clock_timestamp()", Timestamp.class).toInstant();
+    }
+
+    @Transactional
+    public int expireCandidateItems(Long reportId, Instant now) {
+        Timestamp boundary = Timestamp.from(now);
+        List<Long> expiredIds = jdbc.queryForList("""
+                UPDATE found_items item
+                SET status = 'EXPIRED', updated_at = ?
+                WHERE item.status = 'ACTIVE' AND item.expired_at <= ?
+                  AND EXISTS (
+                      SELECT 1 FROM match_candidates candidate
+                      WHERE candidate.report_id = ? AND candidate.item_id = item.id
+                  )
+                RETURNING item.id
+                """, Long.class, boundary, boundary, reportId);
+        if (!expiredIds.isEmpty()) {
+            jdbc.update("""
+                    UPDATE lost_reports SET candidates_stale = true, updated_at = ?
+                    WHERE status = 'OPEN' AND expired_at > ? AND candidates_stale = false
+                    """, boundary, boundary);
+        }
+        return expiredIds.size();
+    }
+
+    @Transactional
+    public void expireLockedReport(Long reportId, Instant now) {
+        expireReportAt(reportId, now);
+    }
+
+    @Transactional
     public void applyExpiry(Long reportId) {
         expireReportAt(reportId, clock.instant());
     }

@@ -93,7 +93,7 @@ class FoundItemLifecycleCleanupIntegrationTest {
     }
 
     @Test
-    void cleanupExpiresActiveAndPendingItemsAndStalesOnlyOpenUnexpiredReports() {
+    void cleanupExpiresActiveAndPendingItemsAndStalesEveryOpenUnexpiredReport() {
         // Given
         Long ownerId = user().getId();
         Long centerId = center();
@@ -116,7 +116,7 @@ class FoundItemLifecycleCleanupIntegrationTest {
         assertThat(result.expiredItems()).isEqualTo(2);
         assertThat(statuses("found_items", activeId, pendingId)).containsExactly("EXPIRED", "EXPIRED");
         assertThat(stale(openUnexpired)).isTrue();
-        assertThat(stale(unrelatedOpen)).isFalse();
+        assertThat(stale(unrelatedOpen)).isTrue();
         assertThat(stale(openExpired)).isFalse();
         assertThat(stale(closed)).isFalse();
     }

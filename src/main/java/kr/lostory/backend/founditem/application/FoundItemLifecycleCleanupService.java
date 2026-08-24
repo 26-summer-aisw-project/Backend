@@ -3,8 +3,6 @@ package kr.lostory.backend.founditem.application;
 import java.sql.Timestamp;
 import java.time.Clock;
 import java.time.Instant;
-import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import kr.lostory.backend.config.FoundItemProperties;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -59,20 +57,10 @@ public class FoundItemLifecycleCleanupService {
                 RETURNING id
                 """, Long.class, boundary, boundary);
         if (!expiredIds.isEmpty()) {
-            String placeholders = String.join(", ", Collections.nCopies(expiredIds.size(), "?"));
-            List<Object> arguments = new ArrayList<>();
-            arguments.add(boundary);
-            arguments.add(boundary);
-            arguments.addAll(expiredIds);
             jdbc.update("""
                     UPDATE lost_reports SET candidates_stale = true, updated_at = ?
                     WHERE status = 'OPEN' AND expired_at > ? AND candidates_stale = false
-                      AND EXISTS (
-                          SELECT 1 FROM match_candidates candidate
-                          WHERE candidate.report_id = lost_reports.id
-                            AND candidate.item_id IN (%s)
-                      )
-                    """.formatted(placeholders), arguments.toArray());
+                    """, boundary, boundary);
         }
 
         int queuedMedia = jdbc.update("""

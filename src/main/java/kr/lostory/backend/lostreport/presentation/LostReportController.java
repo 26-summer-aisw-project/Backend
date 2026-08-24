@@ -4,6 +4,7 @@ import jakarta.validation.Valid;
 import kr.lostory.backend.common.exception.ErrorCode;
 import kr.lostory.backend.common.exception.LostoryException;
 import kr.lostory.backend.lostreport.application.LostReportApiService;
+import kr.lostory.backend.lostreport.application.LostReportCandidateService;
 import kr.lostory.backend.lostreport.domain.LostReportStatus;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -24,9 +25,19 @@ import tools.jackson.databind.JsonNode;
 public class LostReportController {
 
 	private final LostReportApiService service;
+	private final LostReportCandidateService candidateService;
 
-	public LostReportController(LostReportApiService service) {
+	public LostReportController(LostReportApiService service, LostReportCandidateService candidateService) {
 		this.service = service;
+		this.candidateService = candidateService;
+	}
+
+	@GetMapping("/{reportId}/candidates")
+	public LostReportCandidateResponse candidates(
+			@PathVariable Long reportId,
+			@AuthenticationPrincipal Jwt jwt
+	) {
+		return candidateService.candidates(reportId, Long.valueOf(jwt.getSubject()));
 	}
 
 	@PostMapping

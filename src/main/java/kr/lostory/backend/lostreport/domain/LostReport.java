@@ -165,6 +165,11 @@ public class LostReport {
 		this.updatedAt = matchedAt;
 	}
 
+	public void markCandidatesStale(Instant staleAt) {
+		this.candidatesStale = true;
+		this.updatedAt = staleAt;
+	}
+
 	public void close(Instant closedAt) {
 		if (status != LostReportStatus.OPEN) {
 			throw new LostoryException(ErrorCode.REPORT_NOT_OPEN);

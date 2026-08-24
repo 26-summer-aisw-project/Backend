@@ -17,7 +17,9 @@ public interface LostReportRepository extends JpaRepository<LostReport, Long> {
     Optional<LostReport> findByIdForUpdate(@Param("reportId") Long reportId);
 
     @Modifying
-    @Query("update LostReport report set report.candidatesStale = true where report.status = 'OPEN' and report.candidatesStale = false")
+    @Query("update LostReport report set report.candidatesStale = true "
+            + "where report.status = 'OPEN' and report.expiredAt > CURRENT_TIMESTAMP "
+            + "and report.candidatesStale = false")
     int markOpenCandidatesStale();
 
     Page<LostReport> findByReporterId(Long reporterId, Pageable pageable);
