@@ -110,7 +110,8 @@ class FoundItemDraftApiIntegrationTest {
         JsonNode detailJson = new ObjectMapper().readTree(detail.body());
         assertThat(detail.statusCode()).isEqualTo(200);
         assertThat(detailJson.propertyNames()).containsExactlyInAnyOrder(
-                "id", "status", "visionStatus", "visionSuggestion", "draftExpiresAt");
+                "id", "status", "handoverStatus", "visionStatus", "visionSuggestion", "draftExpiresAt");
+        assertThat(detailJson.get("handoverStatus").asString()).isEqualTo("NONE");
         assertThat(detailJson.get("visionStatus").asString()).isEqualTo("READY");
         assertThat(detailJson.get("visionSuggestion").propertyNames())
                 .containsExactlyInAnyOrder("color", "publicDescription");
@@ -183,6 +184,54 @@ class FoundItemDraftApiIntegrationTest {
         assertSafe(ownerDetail.body());
         assertSafe(adminDetail.body());
         assertSafe(foreignDetail.body());
+    }
+
+    @Test
+    void legacyHandoverStatusIsProjectedAsNoneAcrossOwnerAndAdminHttpResponses() throws Exception {
+        // Given
+        User owner = user(UserRole.USER);
+        User admin = user(UserRole.ADMIN);
+        User foreign = user(UserRole.USER);
+        Long itemId = jdbc.queryForObject("""
+                INSERT INTO found_items (
+                    finder_id, name, category, description, found_at, storage_method,
+                    legacy_handover_place_name, handover_status, status, vision_status,
+                    analysis_generation, created_at, updated_at, expired_at
+                ) VALUES (?, 'legacy wallet', 'WALLET', 'legacy handover fixture', clock_timestamp(),
+                    'HANDED_TO_CENTER', 'Legacy handover desk', 'LEGACY_UNVERIFIED', 'ACTIVE', 'FAILED',
+                    0, clock_timestamp(), clock_timestamp(), clock_timestamp() + INTERVAL '14 days')
+                RETURNING id
+                """, Long.class, owner.getId());
+        String ownerToken = tokens.issue(owner).value();
+        String adminToken = tokens.issue(admin).value();
+        String foreignToken = tokens.issue(foreign).value();
+
+        // When
+        HttpResponse<String> ownerList = get("/api/v1/found-items", ownerToken);
+        HttpResponse<String> ownerDetail = get("/api/v1/found-items/" + itemId, ownerToken);
+        HttpResponse<String> adminDetail = get("/api/v1/found-items/" + itemId, adminToken);
+        HttpResponse<String> foreignDetail = get("/api/v1/found-items/" + itemId, foreignToken);
+
+        // Then
+        JsonNode ownerListJson = new ObjectMapper().readTree(ownerList.body());
+        JsonNode ownerDetailJson = new ObjectMapper().readTree(ownerDetail.body());
+        JsonNode adminDetailJson = new ObjectMapper().readTree(adminDetail.body());
+        assertThat(jdbc.queryForObject("SELECT handover_status FROM found_items WHERE id = ?", String.class, itemId))
+                .isEqualTo("LEGACY_UNVERIFIED");
+        assertThat(ownerList.statusCode()).isEqualTo(200);
+        assertThat(ownerListJson.get("data").get(0).get("handoverStatus").asString()).isEqualTo("NONE");
+        assertThat(ownerDetail.statusCode()).isEqualTo(200);
+        assertThat(ownerDetailJson.has("handoverStatus")).isTrue();
+        assertThat(ownerDetailJson.get("handoverStatus").asString()).isEqualTo("NONE");
+        assertThat(adminDetail.statusCode()).isEqualTo(200);
+        assertThat(adminDetailJson.has("handoverStatus")).isTrue();
+        assertThat(adminDetailJson.get("handoverStatus").asString()).isEqualTo("NONE");
+        assertThat(ownerList.body()).doesNotContain("LEGACY_UNVERIFIED");
+        assertThat(ownerDetail.body()).doesNotContain("LEGACY_UNVERIFIED");
+        assertThat(adminDetail.body()).doesNotContain("LEGACY_UNVERIFIED");
+        assertError(foreignDetail, 404, "COMMON-004");
+        System.out.println("P0_HTTP_LEGACY_HANDOVER_OBSERVABLE internal=LEGACY_UNVERIFIED "
+                + "owner-list=NONE owner-detail=NONE admin-detail=NONE foreign=404");
     }
 
     @Test

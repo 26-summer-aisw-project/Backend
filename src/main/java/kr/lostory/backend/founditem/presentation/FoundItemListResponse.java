@@ -22,7 +22,11 @@ public record FoundItemListResponse(List<Item> data, Meta meta) {
     ) {
         static Item from(FoundItem item) {
             return new Item(item.getId().toString(), item.getStatus(), item.getVisionStatus(),
-                    item.getCategory(), item.getHandoverStatus());
+                    item.getCategory(), publicHandoverStatus(item.getHandoverStatus()));
+        }
+
+        private static HandoverStatus publicHandoverStatus(HandoverStatus handoverStatus) {
+            return handoverStatus == HandoverStatus.LEGACY_UNVERIFIED ? HandoverStatus.NONE : handoverStatus;
         }
     }
 
