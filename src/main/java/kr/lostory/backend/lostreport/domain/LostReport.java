@@ -2,6 +2,8 @@ package kr.lostory.backend.lostreport.domain;
 
 import java.time.Duration;
 import java.time.Instant;
+import kr.lostory.backend.common.exception.ErrorCode;
+import kr.lostory.backend.common.exception.LostoryException;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -161,5 +163,13 @@ public class LostReport {
 		this.lastMatchedAt = matchedAt;
 		this.matchingPolicyVersion = policyVersion;
 		this.updatedAt = matchedAt;
+	}
+
+	public void close(Instant closedAt) {
+		if (status != LostReportStatus.OPEN) {
+			throw new LostoryException(ErrorCode.REPORT_NOT_OPEN);
+		}
+		status = LostReportStatus.CLOSED;
+		updatedAt = closedAt;
 	}
 }

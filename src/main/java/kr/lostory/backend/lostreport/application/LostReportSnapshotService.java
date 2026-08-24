@@ -74,11 +74,14 @@ public class LostReportSnapshotService {
 
 	@Transactional
 	public LostReportSnapshot create(LostReportSnapshotCommand command) {
+		return create(command, clock.instant());
+	}
+
+	LostReportSnapshot create(LostReportSnapshotCommand command, Instant now) {
 		validateCommand(command);
 		List<LostReportWaypointInput> waypoints = normalizeWaypoints(command.waypoints());
 		int radius = radiusPolicy.calculate(adjacentDistances(waypoints));
 		List<CenterGuidance> guidance = centerGuidance(waypoints);
-		Instant now = clock.instant();
 		LostReport report = reportRepository.saveAndFlush(new LostReport(
 				command.reporterId(), command.category(), command.lostAtFrom(), command.lostAtTo(),
 				command.description(), radius, matchingProperties.radiusPolicyVersion(), json(guidance),

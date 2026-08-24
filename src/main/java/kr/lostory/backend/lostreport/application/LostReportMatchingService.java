@@ -54,7 +54,22 @@ public class LostReportMatchingService {
 	public List<MatchCandidateResult> recompute(Long reportId) {
 		LostReport report = reportRepository.findByIdForUpdate(reportId).orElseThrow();
 		Instant databaseNow = jdbc.queryForObject("SELECT clock_timestamp()", Timestamp.class).toInstant();
-		if (report.getStatus() != LostReportStatus.OPEN || !report.getExpiredAt().isAfter(databaseNow)) {
+		return recompute(report, databaseNow, databaseNow);
+	}
+
+	@Transactional
+	public List<MatchCandidateResult> recomputeForOpenReport(Long reportId, Instant reportNow) {
+		LostReport report = reportRepository.findByIdForUpdate(reportId).orElseThrow();
+		Instant databaseNow = jdbc.queryForObject("SELECT clock_timestamp()", Timestamp.class).toInstant();
+		return recompute(report, reportNow, databaseNow);
+	}
+
+	private List<MatchCandidateResult> recompute(
+			LostReport report,
+			Instant reportNow,
+			Instant matchedAt
+	) {
+		if (report.getStatus() != LostReportStatus.OPEN || !report.getExpiredAt().isAfter(reportNow)) {
 			throw new IllegalStateException("only unexpired OPEN reports can be matched");
 		}
 
@@ -64,18 +79,18 @@ public class LostReportMatchingService {
 						.thenComparing(ScoredCandidate::itemId))
 				.limit(5)
 				.toList();
-		candidateRepository.deleteAllByReportId(reportId);
+		candidateRepository.deleteAllByReportId(report.getId());
 		List<MatchCandidate> entities = new ArrayList<>(scored.size());
 		List<MatchCandidateResult> result = new ArrayList<>(scored.size());
 		for (int index = 0; index < scored.size(); index++) {
 			ScoredCandidate candidate = scored.get(index);
 			short rank = (short) (index + 1);
-			entities.add(new MatchCandidate(reportId, candidate.itemId(), rank,
+			entities.add(new MatchCandidate(report.getId(), candidate.itemId(), rank,
 					candidate.score().score(), breakdown(candidate)));
 			result.add(new MatchCandidateResult(candidate.itemId().toString(), rank, candidate.score().score()));
 		}
 		candidateRepository.saveAllAndFlush(entities);
-		report.recordMatch(databaseNow, POLICY_VERSION);
+		report.recordMatch(matchedAt, POLICY_VERSION);
 		return List.copyOf(result);
 	}
 
