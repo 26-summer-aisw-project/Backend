@@ -156,6 +156,16 @@ public class FoundItem {
         return legacyHandoverPlaceName;
     }
 
+    public int beginImageAnalysis() {
+        analysisGeneration++;
+        visionStatus = VisionStatus.PENDING;
+        return analysisGeneration;
+    }
+
+    public boolean isTerminal() {
+        return status == FoundItemStatus.EXPIRED || status == FoundItemStatus.RETURNED;
+    }
+
     @PreUpdate
     void updateTimestamp() {
         this.updatedAt = Instant.now().truncatedTo(ChronoUnit.MICROS);

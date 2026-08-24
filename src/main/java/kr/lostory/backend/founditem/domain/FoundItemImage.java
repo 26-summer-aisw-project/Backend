@@ -73,4 +73,33 @@ public class FoundItemImage {
         this.sizeBytes = sizeBytes;
         this.createdAt = Instant.now();
     }
+
+    public FoundItemImage(
+            Long foundItemId,
+            String originalFilename,
+            String objectKey,
+            String contentType,
+            long sizeBytes,
+            int analysisGeneration,
+            java.util.UUID uploadOperationId
+    ) {
+        this.foundItemId = foundItemId;
+        this.originalFilename = originalFilename;
+        this.objectKey = objectKey;
+        this.current = true;
+        this.analysisGeneration = analysisGeneration;
+        this.uploadOperationId = uploadOperationId;
+        this.contentType = contentType;
+        this.sizeBytes = sizeBytes;
+        this.createdAt = Instant.now();
+    }
+
+    public void replace() {
+        current = false;
+    }
+
+    public void markObjectDeleted(Instant deletedAt) {
+        current = false;
+        objectDeletedAt = deletedAt;
+    }
 }

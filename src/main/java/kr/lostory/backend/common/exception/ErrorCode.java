@@ -7,6 +7,7 @@ public enum ErrorCode {
 	FORBIDDEN("COMMON-003", "You do not have permission to access this resource."),
 	RESOURCE_NOT_FOUND("COMMON-004", "The requested resource could not be found."),
 	INTERNAL_SERVER_ERROR("COMMON-005", "An unexpected server error occurred."),
+	MEDIA_NOT_AVAILABLE("MEDIA_NOT_AVAILABLE", "Media is no longer available."),
 	DUPLICATE_EMAIL("AUTH-001", "An account with this email already exists."),
 	INVALID_CREDENTIALS("AUTH-002", "Invalid email or password."),
 	INVALID_TOKEN("AUTH-003", "The access token is invalid.");

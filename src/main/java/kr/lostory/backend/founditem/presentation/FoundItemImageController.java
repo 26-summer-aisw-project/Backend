@@ -1,8 +1,12 @@
 package kr.lostory.backend.founditem.presentation;
 
 import java.util.List;
+import kr.lostory.backend.common.exception.ErrorCode;
+import kr.lostory.backend.common.exception.LostoryException;
+import kr.lostory.backend.common.storage.ObjectStorage;
 import kr.lostory.backend.founditem.application.FoundItemImageService;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -15,28 +19,35 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
 @RestController
-@RequestMapping("/api/v1/found-items/{foundItemId}/images")
+@RequestMapping("/api/v1/found-items/{foundItemId}/image")
 public class FoundItemImageController {
 
-    private final FoundItemImageService foundItemImageService;
+    private final FoundItemImageService service;
 
-    public FoundItemImageController(FoundItemImageService foundItemImageService) {
-        this.foundItemImageService = foundItemImageService;
+    public FoundItemImageController(FoundItemImageService service) {
+        this.service = service;
     }
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    public List<FoundItemImageResponse> upload(
+    public FoundItemImageResponse upload(
             @PathVariable Long foundItemId,
             @AuthenticationPrincipal Jwt jwt,
-            @RequestParam("images") List<MultipartFile> images
+            @RequestParam("image") List<MultipartFile> images
     ) {
-        Long requesterId = Long.valueOf(jwt.getSubject());
-        return foundItemImageService.upload(foundItemId, requesterId, images);
+        if (images.size() != 1) {
+            throw new LostoryException(ErrorCode.INVALID_REQUEST);
+        }
+        return service.upload(foundItemId, Long.valueOf(jwt.getSubject()), images.getFirst());
     }
 
     @GetMapping
-    public List<FoundItemImageResponse> getImages(@PathVariable Long foundItemId) {
-        return foundItemImageService.getImages(foundItemId);
+    public ResponseEntity<byte[]> get(@PathVariable Long foundItemId, @AuthenticationPrincipal Jwt jwt) {
+        List<String> roles = jwt.getClaimAsStringList("roles");
+        ObjectStorage.StoredObject object = service.getCurrent(
+                foundItemId, Long.valueOf(jwt.getSubject()), roles != null && roles.contains("ADMIN"));
+        return ResponseEntity.ok()
+                .header("Content-Type", object.contentType())
+                .body(object.bytes());
     }
 }

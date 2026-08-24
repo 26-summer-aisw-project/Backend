@@ -17,6 +17,9 @@ public record ObjectStorageProperties(
 	@NotBlank String region,
 	@NotBlank String bucket,
 	boolean pathStyle,
-	@NotNull @DurationMin(nanos = 1) Duration timeout
+	@NotNull @DurationMin(nanos = 1) Duration timeout,
+	@NotNull @DurationMin(nanos = 1) Duration orphanGrace,
+	@NotNull @DurationMin(nanos = 1) Duration orphanSweepInterval,
+	@NotNull @DurationMin(nanos = 1) Duration orphanSweepInitialDelay
 ) {
 }

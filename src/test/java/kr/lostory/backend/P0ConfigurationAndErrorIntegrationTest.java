@@ -53,6 +53,9 @@ import static org.mockito.Mockito.when;
 		"object-storage.bucket=p0-test-bucket",
 		"object-storage.path-style=true",
 		"object-storage.timeout=PT3S",
+		"object-storage.orphan-grace=PT2H",
+		"object-storage.orphan-sweep-interval=PT11M",
+		"object-storage.orphan-sweep-initial-delay=PT12M",
 		"vision.enabled=false",
 		"vision.provider=google-cloud-vision",
 		"vision.processing-region=asia-northeast3",
@@ -184,6 +187,9 @@ class P0ConfigurationAndErrorIntegrationTest {
 		assertThat(objectStorageProperties.bucket()).isEqualTo("p0-test-bucket");
 		assertThat(objectStorageProperties.pathStyle()).isTrue();
 		assertThat(objectStorageProperties.timeout()).isEqualTo(Duration.ofSeconds(3));
+		assertThat(objectStorageProperties.orphanGrace()).isEqualTo(Duration.ofHours(2));
+		assertThat(objectStorageProperties.orphanSweepInterval()).isEqualTo(Duration.ofMinutes(11));
+		assertThat(objectStorageProperties.orphanSweepInitialDelay()).isEqualTo(Duration.ofMinutes(12));
 		assertThat(visionProperties.enabled()).isFalse();
 		assertThat(visionProperties.provider()).isEqualTo("google-cloud-vision");
 		assertThat(visionProperties.processingRegion()).isEqualTo("asia-northeast3");
