@@ -25,6 +25,22 @@ public class MatchingFeatureResolver {
                 : first(itemId, kind, ItemFeatureSource.AI, ItemFeatureVisibility.MATCH_ONLY);
     }
 
+    public MatchingFeatures resolveForMatching(Long itemId) {
+        Optional<String> color = first(itemId, ItemFeatureKind.COLOR,
+                ItemFeatureSource.FINDER, ItemFeatureVisibility.CANDIDATE_VIEW);
+        Optional<String> description = first(itemId, ItemFeatureKind.PUBLIC_DESCRIPTION,
+                ItemFeatureSource.FINDER, ItemFeatureVisibility.CANDIDATE_VIEW);
+        return new MatchingFeatures(
+                color.isPresent() ? color : first(itemId, ItemFeatureKind.COLOR,
+                        ItemFeatureSource.AI, ItemFeatureVisibility.MATCH_ONLY),
+                description.isPresent() ? description : first(itemId, ItemFeatureKind.LABEL,
+                        ItemFeatureSource.AI, ItemFeatureVisibility.MATCH_ONLY)
+        );
+    }
+
+    public record MatchingFeatures(Optional<String> color, Optional<String> description) {
+    }
+
     private Optional<String> first(
             Long itemId,
             ItemFeatureKind kind,

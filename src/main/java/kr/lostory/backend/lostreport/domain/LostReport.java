@@ -155,4 +155,11 @@ public class LostReport {
 		this.candidatesStale = true;
 		this.updatedAt = updatedAt;
 	}
+
+	public void recordMatch(Instant matchedAt, String policyVersion) {
+		this.candidatesStale = false;
+		this.lastMatchedAt = matchedAt;
+		this.matchingPolicyVersion = policyVersion;
+		this.updatedAt = matchedAt;
+	}
 }
