@@ -139,6 +139,40 @@ class FoundItemRegistrationApiIntegrationTest {
     }
 
     @Test
+    void repeatedOwnerImagePutMarksEligibleOpenReportOnceAndNeverRewritesIt() throws Exception {
+        // Given
+        User owner = user();
+        String token = tokens.issue(owner).value();
+        String id = createDraft(token);
+        assertThat(patch(id, token, registration("LEFT_IN_PLACE", null, null)).statusCode()).isEqualTo(200);
+        long openReport = insertReport(owner.getId(), "OPEN");
+        long closedReport = insertReport(owner.getId(), "CLOSED");
+        long expiredReport = insertReport(owner.getId(), "EXPIRED");
+        createStaleWriteAudit();
+
+        try {
+            // When
+            HttpResponse<String> first = imagePut(id, token, SECOND_PNG);
+            int firstOpenWrites = staleWriteCount(openReport);
+            HttpResponse<String> second = imagePut(id, token, SECOND_PNG);
+
+            // Then
+            assertThat(first.statusCode()).isEqualTo(200);
+            assertThat(second.statusCode()).isEqualTo(200);
+            assertThat(firstOpenWrites).isOne();
+            assertThat(staleWriteCount(openReport)).isOne();
+            assertThat(stale(openReport)).isTrue();
+            assertThat(staleWriteCount(closedReport)).isZero();
+            assertThat(stale(closedReport)).isFalse();
+            assertThat(staleWriteCount(expiredReport)).isZero();
+            assertThat(stale(expiredReport)).isFalse();
+            System.out.println("TASK6_HTTP_REPEATED_IMAGE_STALE_WRITES first=1 second=0 closed=0 expired=0");
+        } finally {
+            dropStaleWriteAudit();
+        }
+    }
+
+    @Test
     void registrationRejectsForeignMalformedAndTerminalMutationWithoutChangingRows() throws Exception {
         // Given
         User owner = user();
@@ -268,6 +302,34 @@ class FoundItemRegistrationApiIntegrationTest {
     private boolean stale(long reportId) {
         return jdbc.queryForObject("SELECT candidates_stale FROM lost_reports WHERE id = ?",
                 Boolean.class, reportId);
+    }
+
+    private void createStaleWriteAudit() {
+        jdbc.execute("CREATE TABLE lost_report_stale_write_audit (report_id BIGINT NOT NULL)");
+        jdbc.execute("""
+                CREATE FUNCTION record_lost_report_stale_write() RETURNS trigger LANGUAGE plpgsql AS $$
+                BEGIN
+                    INSERT INTO lost_report_stale_write_audit (report_id) VALUES (NEW.id);
+                    RETURN NEW;
+                END;
+                $$
+                """);
+        jdbc.execute("""
+                CREATE TRIGGER record_lost_report_stale_write
+                AFTER UPDATE OF candidates_stale ON lost_reports
+                FOR EACH ROW EXECUTE FUNCTION record_lost_report_stale_write()
+                """);
+    }
+
+    private int staleWriteCount(long reportId) {
+        return jdbc.queryForObject("SELECT count(*) FROM lost_report_stale_write_audit WHERE report_id = ?",
+                Integer.class, reportId);
+    }
+
+    private void dropStaleWriteAudit() {
+        jdbc.execute("DROP TRIGGER IF EXISTS record_lost_report_stale_write ON lost_reports");
+        jdbc.execute("DROP FUNCTION IF EXISTS record_lost_report_stale_write()");
+        jdbc.execute("DROP TABLE IF EXISTS lost_report_stale_write_audit");
     }
 
     private String registration(String method, String centerId, String storageDescription) {

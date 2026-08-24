@@ -7,6 +7,6 @@ import org.springframework.data.jpa.repository.Query;
 public interface LostReportRepository extends JpaRepository<LostReport, Long> {
 
     @Modifying
-    @Query("update LostReport report set report.candidatesStale = true where report.status = 'OPEN'")
+    @Query("update LostReport report set report.candidatesStale = true where report.status = 'OPEN' and report.candidatesStale = false")
     int markOpenCandidatesStale();
 }
