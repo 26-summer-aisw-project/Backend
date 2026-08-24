@@ -12,6 +12,7 @@ import kr.lostory.backend.founditem.domain.ObjectDeletionOutbox;
 import kr.lostory.backend.founditem.domain.ObjectDeletionOutboxRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import java.time.Instant;
 
 @Service
 public class FoundItemImagePersistenceService {
@@ -61,6 +62,17 @@ public class FoundItemImagePersistenceService {
                 pending.uploadOperationId()));
         visionJobRepository.save(new FoundItemVisionJob(foundItemId, image.getId(), generation));
         return image;
+    }
+
+    @Transactional
+    public FoundItem createDraft(Long finderId, Instant createdAt, Instant draftExpiresAt, PendingImage pending) {
+        FoundItem item = foundItemRepository.saveAndFlush(FoundItem.draft(finderId, createdAt, draftExpiresAt));
+        int generation = item.beginImageAnalysis();
+        FoundItemImage image = imageRepository.saveAndFlush(new FoundItemImage(
+                item.getId(), pending.originalFilename(), pending.objectKey(), pending.contentType(),
+                pending.sizeBytes(), generation, pending.uploadOperationId()));
+        visionJobRepository.save(new FoundItemVisionJob(item.getId(), image.getId(), generation));
+        return item;
     }
 
     @Transactional

@@ -1,6 +1,8 @@
 package kr.lostory.backend.founditem.application;
 
 import java.io.IOException;
+import java.time.Clock;
+import java.time.Instant;
 import java.util.Arrays;
 import java.util.Set;
 import java.util.UUID;
@@ -13,6 +15,7 @@ import kr.lostory.backend.founditem.domain.FoundItemImage;
 import kr.lostory.backend.founditem.domain.FoundItemImageRepository;
 import kr.lostory.backend.founditem.domain.FoundItemRepository;
 import kr.lostory.backend.founditem.presentation.FoundItemImageResponse;
+import kr.lostory.backend.config.FoundItemProperties;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -27,17 +30,46 @@ public class FoundItemImageService {
     private final FoundItemImageRepository imageRepository;
     private final FoundItemImagePersistenceService persistenceService;
     private final ObjectStorage storage;
+    private final FoundItemProperties properties;
+    private final Clock clock;
 
     public FoundItemImageService(
             FoundItemRepository foundItemRepository,
             FoundItemImageRepository imageRepository,
             FoundItemImagePersistenceService persistenceService,
-            ObjectStorage storage
+            ObjectStorage storage,
+            FoundItemProperties properties,
+            Clock clock
     ) {
         this.foundItemRepository = foundItemRepository;
         this.imageRepository = imageRepository;
         this.persistenceService = persistenceService;
         this.storage = storage;
+        this.properties = properties;
+        this.clock = clock;
+    }
+
+    public FoundItem createDraft(Long finderId, MultipartFile image) {
+        ValidatedImage validated = validate(image);
+        UUID operationId = UUID.randomUUID();
+        String key = "found-items/" + UUID.randomUUID();
+        try {
+            storage.put(key, validated.bytes(), validated.contentType(), operationId);
+        } catch (ObjectStorageException exception) {
+            throw new LostoryException(ErrorCode.INTERNAL_SERVER_ERROR);
+        }
+
+        try {
+            Instant createdAt = clock.instant();
+            return persistenceService.createDraft(finderId, createdAt,
+                    createdAt.plus(properties.draftTtl()),
+                    new FoundItemImagePersistenceService.PendingImage(
+                            validated.originalFilename(), key, validated.contentType(),
+                            validated.bytes().length, operationId));
+        } catch (RuntimeException exception) {
+            compensate(key);
+            throw exception;
+        }
     }
 
     public FoundItemImageResponse upload(Long foundItemId, Long requesterId, MultipartFile image) {

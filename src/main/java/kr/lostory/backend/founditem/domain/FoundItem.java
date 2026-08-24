@@ -104,6 +104,18 @@ public class FoundItem {
     protected FoundItem() {
     }
 
+    public static FoundItem draft(Long finderId, Instant createdAt, Instant draftExpiresAt) {
+        FoundItem item = new FoundItem();
+        item.finderId = finderId;
+        item.handoverStatus = HandoverStatus.NONE;
+        item.status = FoundItemStatus.DRAFT;
+        item.visionStatus = VisionStatus.PENDING;
+        item.createdAt = createdAt;
+        item.updatedAt = createdAt;
+        item.draftExpiresAt = draftExpiresAt;
+        return item;
+    }
+
     public FoundItem(
             Long finderId,
             String name,
