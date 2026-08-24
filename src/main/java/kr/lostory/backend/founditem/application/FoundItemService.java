@@ -1,5 +1,8 @@
 package kr.lostory.backend.founditem.application;
 
+import java.time.Clock;
+import java.util.List;
+import kr.lostory.backend.config.FoundItemProperties;
 import kr.lostory.backend.common.exception.ErrorCode;
 import kr.lostory.backend.common.exception.LostoryException;
 import kr.lostory.backend.founditem.domain.FoundItem;
@@ -15,6 +18,10 @@ import kr.lostory.backend.founditem.domain.StorageMethod;
 import kr.lostory.backend.founditem.presentation.FoundItemDetailResponse;
 import kr.lostory.backend.founditem.presentation.FoundItemListResponse;
 import kr.lostory.backend.founditem.presentation.FoundItemResponse;
+import kr.lostory.backend.founditem.presentation.FinalizeFoundItemRegistrationRequest;
+import kr.lostory.backend.founditem.presentation.FoundItemRegistrationResponse;
+import kr.lostory.backend.lostcenter.domain.LostCenterRepository;
+import kr.lostory.backend.lostreport.domain.LostReportRepository;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -27,10 +34,135 @@ public class FoundItemService {
 
     private final FoundItemRepository foundItemRepository;
     private final ItemFeatureRepository featureRepository;
+    private final LostCenterRepository centerRepository;
+    private final LostReportRepository reportRepository;
+    private final FoundItemProperties properties;
+    private final Clock clock;
 
-    public FoundItemService(FoundItemRepository foundItemRepository, ItemFeatureRepository featureRepository) {
+    public FoundItemService(
+            FoundItemRepository foundItemRepository,
+            ItemFeatureRepository featureRepository,
+            LostCenterRepository centerRepository,
+            LostReportRepository reportRepository,
+            FoundItemProperties properties,
+            Clock clock
+    ) {
         this.foundItemRepository = foundItemRepository;
         this.featureRepository = featureRepository;
+        this.centerRepository = centerRepository;
+        this.reportRepository = reportRepository;
+        this.properties = properties;
+        this.clock = clock;
+    }
+
+    @Transactional
+    public FoundItemRegistrationResponse finalizeRegistration(
+            Long id,
+            Long requesterId,
+            FinalizeFoundItemRegistrationRequest request
+    ) {
+        FoundItem item = foundItemRepository.findByIdForUpdate(id)
+                .orElseThrow(() -> new LostoryException(ErrorCode.RESOURCE_NOT_FOUND));
+        if (!item.getFinderId().equals(requesterId)) {
+            throw new LostoryException(ErrorCode.RESOURCE_NOT_FOUND);
+        }
+        if (!item.isRegistrationMutable()) {
+            throw new LostoryException(ErrorCode.INVALID_REQUEST);
+        }
+
+        String category = request.category().trim();
+        String color = request.confirmedFeatures().color();
+        String publicDescription = request.confirmedFeatures().publicDescription().trim();
+        String storageDescription = trimToNull(request.storageDescription());
+        Long centerId = parseCenterId(request.centerId());
+        validateRegistrationStorage(request, storageDescription, centerId);
+
+        boolean matchingFieldsUnchanged = item.hasMatchingFields(
+                category,
+                request.foundAt(),
+                request.foundLocation().latitude(),
+                request.foundLocation().longitude());
+        boolean confirmedFeaturesUnchanged = confirmedFeature(item.getId(), ItemFeatureKind.COLOR)
+                .filter(color::equals).isPresent()
+                && confirmedFeature(item.getId(), ItemFeatureKind.PUBLIC_DESCRIPTION)
+                .filter(publicDescription::equals).isPresent();
+
+        item.finalizeRegistration(
+                category,
+                request.foundAt(),
+                request.foundLocation().latitude(),
+                request.foundLocation().longitude(),
+                request.storageMethod(),
+                storageDescription,
+                centerId,
+                publicDescription,
+                clock.instant(),
+                properties.ttl());
+        replaceConfirmedFeatures(item.getId(), color, publicDescription);
+        if (!matchingFieldsUnchanged || !confirmedFeaturesUnchanged) {
+            reportRepository.markOpenCandidatesStale();
+        }
+        return FoundItemRegistrationResponse.from(item);
+    }
+
+    private void validateRegistrationStorage(
+            FinalizeFoundItemRegistrationRequest request,
+            String storageDescription,
+            Long centerId
+    ) {
+        switch (request.storageMethod()) {
+            case LEFT_IN_PLACE -> {
+                if (storageDescription != null || centerId != null) {
+                    throw new LostoryException(ErrorCode.INVALID_REQUEST);
+                }
+            }
+            case MOVED_TO_SAFE_PLACE -> {
+                if (storageDescription == null || centerId != null) {
+                    throw new LostoryException(ErrorCode.INVALID_REQUEST);
+                }
+            }
+            case HANDED_TO_CENTER -> {
+                if (storageDescription != null || centerId == null
+                        || !centerRepository.isEligibleForHandover(
+                                centerId,
+                                request.foundLocation().latitude(),
+                                request.foundLocation().longitude())) {
+                    throw new LostoryException(ErrorCode.INVALID_REQUEST);
+                }
+            }
+        }
+    }
+
+    private Long parseCenterId(String centerId) {
+        if (!StringUtils.hasText(centerId)) {
+            return null;
+        }
+        try {
+            return Long.valueOf(centerId);
+        } catch (NumberFormatException exception) {
+            throw new LostoryException(ErrorCode.INVALID_REQUEST);
+        }
+    }
+
+    private String trimToNull(String value) {
+        return StringUtils.hasText(value) ? value.trim() : null;
+    }
+
+    private java.util.Optional<String> confirmedFeature(Long itemId, ItemFeatureKind kind) {
+        return featureRepository.findByItemIdAndKindAndSourceAndVisibilityOrderByOrdinalAscIdAsc(
+                        itemId, kind, ItemFeatureSource.FINDER, ItemFeatureVisibility.CANDIDATE_VIEW).stream()
+                .map(ItemFeature::getFeatureValue)
+                .findFirst();
+    }
+
+    private void replaceConfirmedFeatures(Long itemId, String color, String publicDescription) {
+        List<ItemFeatureKind> kinds = List.of(ItemFeatureKind.COLOR, ItemFeatureKind.PUBLIC_DESCRIPTION);
+        featureRepository.deleteByItemIdAndSourceAndKinds(itemId, ItemFeatureSource.FINDER, kinds);
+        featureRepository.saveAll(List.of(
+                new ItemFeature(itemId, ItemFeatureKind.COLOR, color, (short) 1,
+                        ItemFeatureSource.FINDER, ItemFeatureVisibility.CANDIDATE_VIEW, null),
+                new ItemFeature(itemId, ItemFeatureKind.PUBLIC_DESCRIPTION, publicDescription, (short) 1,
+                        ItemFeatureSource.FINDER, ItemFeatureVisibility.CANDIDATE_VIEW, null)));
     }
 
     @Transactional
