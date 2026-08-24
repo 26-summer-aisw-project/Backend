@@ -174,6 +174,61 @@ public class FoundItem {
         return analysisGeneration;
     }
 
+    public boolean isRegistrationMutable() {
+        return status == FoundItemStatus.DRAFT
+                || status == FoundItemStatus.ACTIVE
+                || status == FoundItemStatus.PENDING_HANDOVER;
+    }
+
+    public boolean hasMatchingFields(
+            String newCategory,
+            Instant newFoundAt,
+            BigDecimal newLatitude,
+            BigDecimal newLongitude
+    ) {
+        return java.util.Objects.equals(category, newCategory)
+                && java.util.Objects.equals(foundAt, newFoundAt)
+                && decimalEquals(getFoundLatitude(), newLatitude)
+                && decimalEquals(getFoundLongitude(), newLongitude);
+    }
+
+    public void finalizeRegistration(
+            String newCategory,
+            Instant newFoundAt,
+            BigDecimal newLatitude,
+            BigDecimal newLongitude,
+            StorageMethod newStorageMethod,
+            String newStorageDescription,
+            Long newCenterId,
+            String publicDescription,
+            Instant finalizedAt,
+            Duration ttl
+    ) {
+        this.category = newCategory;
+        this.foundAt = newFoundAt;
+        this.foundLocation = GEOMETRY_FACTORY.createPoint(new Coordinate(
+                newLongitude.doubleValue(), newLatitude.doubleValue()));
+        this.storageMethod = newStorageMethod;
+        this.storageDescription = newStorageDescription;
+        this.legacyHandoverPlaceName = null;
+        this.centerId = newCenterId;
+        this.handedAt = null;
+        this.handoverStatus = HandoverStatus.NONE;
+        this.status = newStorageMethod == StorageMethod.HANDED_TO_CENTER
+                ? FoundItemStatus.PENDING_HANDOVER
+                : FoundItemStatus.ACTIVE;
+        this.name = publicDescription;
+        this.description = publicDescription;
+        this.draftExpiresAt = null;
+        if (this.expiredAt == null) {
+            this.expiredAt = finalizedAt.plus(ttl);
+        }
+    }
+
+    private boolean decimalEquals(BigDecimal current, BigDecimal next) {
+        return current != null && current.compareTo(next) == 0;
+    }
+
     public boolean isTerminal() {
         return status == FoundItemStatus.EXPIRED || status == FoundItemStatus.RETURNED;
     }

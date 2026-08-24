@@ -84,6 +84,9 @@ public class FoundItemImageService {
         if (!item.getFinderId().equals(requesterId)) {
             throw new LostoryException(ErrorCode.RESOURCE_NOT_FOUND);
         }
+        if (!item.isRegistrationMutable()) {
+            throw new LostoryException(ErrorCode.INVALID_REQUEST);
+        }
 
         ValidatedImage validated = validate(image);
         VisionDailyAdmissionService.Admission admission = admissionService.reserve();

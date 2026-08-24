@@ -10,6 +10,11 @@ import kr.lostory.backend.founditem.domain.FoundItemVisionJob;
 import kr.lostory.backend.founditem.domain.FoundItemVisionJobRepository;
 import kr.lostory.backend.founditem.domain.ObjectDeletionOutbox;
 import kr.lostory.backend.founditem.domain.ObjectDeletionOutboxRepository;
+import kr.lostory.backend.founditem.domain.ItemFeatureRepository;
+import kr.lostory.backend.founditem.domain.ItemFeatureKind;
+import kr.lostory.backend.founditem.domain.ItemFeatureSource;
+import kr.lostory.backend.lostreport.domain.LostReportRepository;
+import java.util.List;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import java.time.Instant;
@@ -21,17 +26,23 @@ public class FoundItemImagePersistenceService {
     private final FoundItemImageRepository imageRepository;
     private final FoundItemVisionJobRepository visionJobRepository;
     private final ObjectDeletionOutboxRepository deletionOutboxRepository;
+    private final ItemFeatureRepository featureRepository;
+    private final LostReportRepository reportRepository;
 
     public FoundItemImagePersistenceService(
             FoundItemRepository foundItemRepository,
             FoundItemImageRepository imageRepository,
             FoundItemVisionJobRepository visionJobRepository,
-            ObjectDeletionOutboxRepository deletionOutboxRepository
+            ObjectDeletionOutboxRepository deletionOutboxRepository,
+            ItemFeatureRepository featureRepository,
+            LostReportRepository reportRepository
     ) {
         this.foundItemRepository = foundItemRepository;
         this.imageRepository = imageRepository;
         this.visionJobRepository = visionJobRepository;
         this.deletionOutboxRepository = deletionOutboxRepository;
+        this.featureRepository = featureRepository;
+        this.reportRepository = reportRepository;
     }
 
     @Transactional
@@ -41,7 +52,11 @@ public class FoundItemImagePersistenceService {
         if (!item.getFinderId().equals(requesterId)) {
             throw new LostoryException(ErrorCode.RESOURCE_NOT_FOUND);
         }
+        if (!item.isRegistrationMutable()) {
+            throw new LostoryException(ErrorCode.INVALID_REQUEST);
+        }
 
+        visionJobRepository.supersedePendingByFoundItemId(foundItemId);
         imageRepository.findByFoundItemIdAndCurrentTrue(foundItemId).ifPresent(oldImage -> {
             oldImage.replace();
             imageRepository.flush();
@@ -51,6 +66,11 @@ public class FoundItemImagePersistenceService {
                     "REPLACED"));
         });
 
+        featureRepository.deleteByItemIdAndSource(foundItemId, ItemFeatureSource.AI);
+        featureRepository.deleteByItemIdAndSourceAndKinds(
+                foundItemId,
+                ItemFeatureSource.FINDER,
+                List.of(ItemFeatureKind.COLOR, ItemFeatureKind.PUBLIC_DESCRIPTION));
         int generation = item.beginImageAnalysis();
         FoundItemImage image = imageRepository.saveAndFlush(new FoundItemImage(
                 foundItemId,
@@ -61,6 +81,7 @@ public class FoundItemImagePersistenceService {
                 generation,
                 pending.uploadOperationId()));
         visionJobRepository.save(new FoundItemVisionJob(foundItemId, image.getId(), generation));
+        reportRepository.markOpenCandidatesStale();
         return image;
     }
 

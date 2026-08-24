@@ -12,6 +12,24 @@ import org.springframework.data.repository.query.Param;
 
 public interface LostCenterRepository extends JpaRepository<LostCenter, Long> {
 
+    @Query(value = """
+            SELECT EXISTS (
+                SELECT 1 FROM lost_centers center
+                WHERE center.id = :centerId
+                  AND center.is_active = true
+                  AND center.verification_status IN (
+                      'official_verified', 'official_board_verified', 'official_local_verified')
+                  AND ST_DWithin(
+                      center.location,
+                      ST_SetSRID(ST_MakePoint(:longitude, :latitude), 4326)::geography,
+                      1000)
+            )
+            """, nativeQuery = true)
+    boolean isEligibleForHandover(
+            @Param("centerId") Long centerId,
+            @Param("latitude") BigDecimal latitude,
+            @Param("longitude") BigDecimal longitude);
+
     List<LostCenter> findAllBySourceKeyIn(Collection<String> sourceKeys);
 
     @Modifying(flushAutomatically = true, clearAutomatically = true)
