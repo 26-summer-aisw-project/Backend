@@ -3,7 +3,10 @@ package kr.lostory.backend.lostcenter.domain;
 import java.math.BigDecimal;
 import java.util.Collection;
 import java.util.List;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -11,7 +14,24 @@ public interface LostCenterRepository extends JpaRepository<LostCenter, Long> {
 
     List<LostCenter> findAllBySourceKeyIn(Collection<String> sourceKeys);
 
-    long deleteAllByCsvManagedTrueAndSourceKeyNotIn(Collection<String> sourceKeys);
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("update LostCenter center set center.active = false "
+            + "where center.csvManaged = true and center.sourceKey not in :sourceKeys")
+    int deactivateCsvManagedNotIn(@Param("sourceKeys") Collection<String> sourceKeys);
+
+    @Query("""
+            select center from LostCenter center
+            where center.active = true
+              and center.verificationStatus in :statuses
+              and (lower(center.name) like lower(concat('%', :query, '%'))
+                or lower(center.address) like lower(concat('%', :query, '%')))
+            order by center.name asc, center.id asc
+            """)
+    Page<LostCenter> findDirectory(
+            @Param("statuses") Collection<String> statuses,
+            @Param("query") String query,
+            Pageable pageable
+    );
 
     @Query(
             value = """
@@ -36,9 +56,15 @@ public interface LostCenterRepository extends JpaRepository<LostCenter, Long> {
                       AND lc.verification_status IN (
                           'official_verified',
                           'official_board_verified',
-                          'official_local_verified'
+                          'official_local_verified',
+                          'admin_verified'
                       )
-                    ORDER BY lc.location <-> ST_SetSRID(ST_MakePoint(:longitude, :latitude), 4326)::geography
+                      AND ST_DWithin(
+                          lc.location,
+                          ST_SetSRID(ST_MakePoint(:longitude, :latitude), 4326)::geography,
+                          :radius
+                      )
+                    ORDER BY "distanceMeters" ASC, lc.id ASC
                     LIMIT :limit
                     """,
             nativeQuery = true
@@ -46,6 +72,7 @@ public interface LostCenterRepository extends JpaRepository<LostCenter, Long> {
     List<NearbyLostCenterProjection> findNearby(
             @Param("latitude") BigDecimal latitude,
             @Param("longitude") BigDecimal longitude,
+            @Param("radius") int radius,
             @Param("limit") int limit
     );
 

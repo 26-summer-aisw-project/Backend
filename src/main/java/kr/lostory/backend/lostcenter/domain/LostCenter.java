@@ -9,6 +9,7 @@ import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.UUID;
 import lombok.Getter;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
@@ -91,6 +92,22 @@ public class LostCenter {
         this.updatedAt = this.createdAt;
     }
 
+    public static LostCenter adminVerified(LostCenterDetails details) {
+        LostCenter center = new LostCenter();
+        center.sourceKey = "admin:" + UUID.randomUUID();
+        center.name = details.name();
+        center.address = details.address();
+        center.location = point(details.latitude(), details.longitude());
+        center.contactPhone = details.contactPhone();
+        center.operatingHours = "미정";
+        center.verificationStatus = "admin_verified";
+        center.active = true;
+        center.csvManaged = false;
+        center.createdAt = Instant.now();
+        center.updatedAt = center.createdAt;
+        return center;
+    }
+
     public LostCenter(
             String sourceKey,
             String name,
@@ -134,16 +151,27 @@ public class LostCenter {
         this.parentPlace = parentPlace;
         this.address = address;
         this.detailLocation = detailLocation;
-        this.location = GEOMETRY_FACTORY.createPoint(new Coordinate(
-                longitude.doubleValue(),
-                latitude.doubleValue()
-        ));
+        this.location = point(latitude, longitude);
         this.contactPhone = contactPhone;
         this.operatingHours = operatingHours;
         this.verificationStatus = verificationStatus;
         this.active = true;
         this.csvManaged = true;
         this.updatedAt = Instant.now();
+    }
+
+    public void updateDirectoryEntry(LostCenterDetails details) {
+        if (details.name() != null) this.name = details.name();
+        if (details.address() != null) this.address = details.address();
+        if (details.latitude() != null && details.longitude() != null) {
+            this.location = point(details.latitude(), details.longitude());
+        }
+        if (details.contactPhone() != null) this.contactPhone = details.contactPhone();
+        if (details.active() != null) this.active = details.active();
+    }
+
+    private static Point point(BigDecimal latitude, BigDecimal longitude) {
+        return GEOMETRY_FACTORY.createPoint(new Coordinate(longitude.doubleValue(), latitude.doubleValue()));
     }
 
     @PreUpdate
