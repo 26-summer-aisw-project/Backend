@@ -75,6 +75,7 @@ public class GlobalExceptionHandler {
             case INTERNAL_SERVER_ERROR -> HttpStatus.INTERNAL_SERVER_ERROR;
             case MEDIA_NOT_AVAILABLE -> HttpStatus.GONE;
             case VISION_CAPACITY_EXCEEDED -> HttpStatus.TOO_MANY_REQUESTS;
+            case REPORT_NOT_OPEN -> HttpStatus.CONFLICT;
             case DUPLICATE_EMAIL -> HttpStatus.CONFLICT;
             case INVALID_CREDENTIALS, INVALID_TOKEN -> HttpStatus.UNAUTHORIZED;
         };

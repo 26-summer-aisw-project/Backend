@@ -2,6 +2,7 @@ package kr.lostory.backend.founditem.application;
 
 import kr.lostory.backend.common.exception.ErrorCode;
 import kr.lostory.backend.common.exception.LostoryException;
+import kr.lostory.backend.audit.application.P0AuditService;
 import kr.lostory.backend.founditem.domain.FoundItem;
 import kr.lostory.backend.founditem.domain.FoundItemImage;
 import kr.lostory.backend.founditem.domain.FoundItemImageRepository;
@@ -15,6 +16,7 @@ import kr.lostory.backend.founditem.domain.ItemFeatureKind;
 import kr.lostory.backend.founditem.domain.ItemFeatureSource;
 import kr.lostory.backend.lostreport.domain.LostReportRepository;
 import java.util.List;
+import java.util.Optional;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import java.time.Instant;
@@ -28,6 +30,7 @@ public class FoundItemImagePersistenceService {
     private final ObjectDeletionOutboxRepository deletionOutboxRepository;
     private final ItemFeatureRepository featureRepository;
     private final LostReportRepository reportRepository;
+    private final P0AuditService audit;
 
     public FoundItemImagePersistenceService(
             FoundItemRepository foundItemRepository,
@@ -35,7 +38,8 @@ public class FoundItemImagePersistenceService {
             FoundItemVisionJobRepository visionJobRepository,
             ObjectDeletionOutboxRepository deletionOutboxRepository,
             ItemFeatureRepository featureRepository,
-            LostReportRepository reportRepository
+            LostReportRepository reportRepository,
+            P0AuditService audit
     ) {
         this.foundItemRepository = foundItemRepository;
         this.imageRepository = imageRepository;
@@ -43,6 +47,7 @@ public class FoundItemImagePersistenceService {
         this.deletionOutboxRepository = deletionOutboxRepository;
         this.featureRepository = featureRepository;
         this.reportRepository = reportRepository;
+        this.audit = audit;
     }
 
     @Transactional
@@ -57,7 +62,8 @@ public class FoundItemImagePersistenceService {
         }
 
         visionJobRepository.supersedePendingByFoundItemId(foundItemId);
-        imageRepository.findByFoundItemIdAndCurrentTrue(foundItemId).ifPresent(oldImage -> {
+        Optional<FoundItemImage> replacedImage = imageRepository.findByFoundItemIdAndCurrentTrue(foundItemId);
+        replacedImage.ifPresent(oldImage -> {
             oldImage.replace();
             imageRepository.flush();
             deletionOutboxRepository.save(new ObjectDeletionOutbox(
@@ -82,6 +88,9 @@ public class FoundItemImagePersistenceService {
                 pending.uploadOperationId()));
         visionJobRepository.save(new FoundItemVisionJob(foundItemId, image.getId(), generation));
         reportRepository.markOpenCandidatesStale();
+        if (replacedImage.isPresent()) {
+            audit.foundItemImageReplaced(requesterId, foundItemId);
+        }
         return image;
     }
 

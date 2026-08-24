@@ -76,6 +76,18 @@ public class FoundItemController {
         return foundItemService.finalizeRegistration(id, Long.valueOf(jwt.getSubject()), request);
     }
 
+    @PostMapping("/{id}:confirm-handover")
+    public FoundItemRegistrationResponse confirmHandover(
+            @PathVariable Long id,
+            @AuthenticationPrincipal Jwt jwt,
+            @RequestBody(required = false) byte[] body
+    ) {
+        if (body != null && body.length > 0) {
+            throw new LostoryException(ErrorCode.INVALID_REQUEST);
+        }
+        return foundItemService.confirmHandover(id, Long.valueOf(jwt.getSubject()));
+    }
+
     @GetMapping
     public FoundItemListResponse list(
             @AuthenticationPrincipal Jwt jwt,
