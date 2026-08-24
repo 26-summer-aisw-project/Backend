@@ -120,6 +120,7 @@ public class SecurityConfig {
 			.sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
 			.authorizeHttpRequests((requests) -> requests
 				.requestMatchers(EndpointRequest.to(HealthEndpoint.class)).permitAll()
+				.requestMatchers("/api/v1/admin/**").hasRole("ADMIN")
 				.requestMatchers(
 					"/api/v1/auth/signup",
 					"/api/v1/auth/login",

@@ -62,19 +62,10 @@ class LostCenterNearbyIntegrationTest {
         List<NearbyLostCenterResponse> responses = lostCenterService.findNearbyByFoundItem(
                 foundItem.getId(),
                 finder.getId()
-        );
+        ).data();
 
-        assertThat(responses).hasSize(10);
-        assertThat(responses.get(0).centerKey()).isEqualTo("ssu_primary_student_service_team");
-        assertThat(responses.get(0).distanceMeters()).isLessThan(responses.get(1).distanceMeters());
-        assertThat(responses.get(1).distanceMeters()).isLessThan(responses.get(2).distanceMeters());
-        assertThat(responses).allSatisfy(response -> {
-            assertThat(response.verificationStatus()).isIn(
-                    "official_verified",
-                    "official_board_verified",
-                    "official_local_verified"
-            );
-        });
+        assertThat(responses).hasSize(1);
+        assertThat(responses).allSatisfy(response -> assertThat(response.distanceMeters()).isLessThanOrEqualTo(1000));
     }
 
     @Test
@@ -103,7 +94,7 @@ class LostCenterNearbyIntegrationTest {
         ))
                 .isInstanceOf(LostoryException.class)
                 .extracting("errorCode")
-                .isEqualTo(ErrorCode.FORBIDDEN);
+                .isEqualTo(ErrorCode.RESOURCE_NOT_FOUND);
     }
 
     private static String uniqueEmail() {

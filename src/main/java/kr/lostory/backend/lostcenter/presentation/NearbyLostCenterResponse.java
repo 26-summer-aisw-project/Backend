@@ -4,34 +4,23 @@ import java.math.BigDecimal;
 import kr.lostory.backend.lostcenter.domain.LostCenterRepository.NearbyLostCenterProjection;
 
 public record NearbyLostCenterResponse(
-        Long id,
-        String centerKey,
+        String id,
         String name,
-        String parentPlace,
-        String address,
-        String detailLocation,
-        String phoneNumber,
-        String operatingHours,
-        String verificationStatus,
-        BigDecimal latitude,
-        BigDecimal longitude,
+        String contactPhone,
+        LocationResponse location,
         double distanceMeters
 ) {
 
     public static NearbyLostCenterResponse from(NearbyLostCenterProjection projection) {
         return new NearbyLostCenterResponse(
-                projection.getId(),
-                projection.getCenterKey(),
+                projection.getId().toString(),
                 projection.getName(),
-                projection.getParentPlace(),
-                projection.getAddress(),
-                projection.getDetailLocation(),
                 projection.getPhoneNumber(),
-                projection.getOperatingHours(),
-                projection.getVerificationStatus(),
-                projection.getLatitude(),
-                projection.getLongitude(),
+                new LocationResponse(projection.getLatitude(), projection.getLongitude()),
                 projection.getDistanceMeters()
         );
+    }
+
+    public record LocationResponse(BigDecimal latitude, BigDecimal longitude) {
     }
 }
