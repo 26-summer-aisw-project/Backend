@@ -36,16 +36,16 @@ public class FoundItem {
     @Column(name = "finder_id", nullable = false)
     private Long finderId;
 
-    @Column(nullable = false, length = 100)
+    @Column(length = 100)
     private String name;
 
-    @Column(nullable = false, length = 64)
+    @Column(length = 64)
     private String category;
 
-    @Column(nullable = false, length = 1000)
+    @Column(length = 1000)
     private String description;
 
-    @Column(nullable = false)
+    @Column
     private Instant foundAt;
 
     @JdbcTypeCode(SqlTypes.GEOGRAPHY)
@@ -59,18 +59,35 @@ public class FoundItem {
     private String foundLocationDetail;
 
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false, length = 30)
+    @Column(length = 30)
     private StorageMethod storageMethod;
 
     @Column(length = 1000)
     private String storageDescription;
 
-    @Column(length = 100)
-    private String handoverPlaceName;
+    @Column(name = "legacy_handover_place_name", length = 100)
+    private String legacyHandoverPlaceName;
+
+    @Column(name = "center_id")
+    private Long centerId;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "handover_status", nullable = false)
+    private HandoverStatus handoverStatus;
+
+    @Column(name = "handed_at")
+    private Instant handedAt;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 30)
     private FoundItemStatus status;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "vision_status", nullable = false)
+    private VisionStatus visionStatus;
+
+    @Column(name = "analysis_generation", nullable = false)
+    private int analysisGeneration;
 
     @Column(nullable = false)
     private Instant createdAt;
@@ -78,10 +95,25 @@ public class FoundItem {
     @Column(nullable = false)
     private Instant updatedAt;
 
-    @Column(name = "expired_at", nullable = false)
+    @Column(name = "expired_at")
     private Instant expiredAt;
 
+    @Column(name = "draft_expires_at")
+    private Instant draftExpiresAt;
+
     protected FoundItem() {
+    }
+
+    public static FoundItem draft(Long finderId, Instant createdAt, Instant draftExpiresAt) {
+        FoundItem item = new FoundItem();
+        item.finderId = finderId;
+        item.handoverStatus = HandoverStatus.NONE;
+        item.status = FoundItemStatus.DRAFT;
+        item.visionStatus = VisionStatus.PENDING;
+        item.createdAt = createdAt;
+        item.updatedAt = createdAt;
+        item.draftExpiresAt = draftExpiresAt;
+        return item;
     }
 
     public FoundItem(
@@ -96,7 +128,7 @@ public class FoundItem {
             String foundLocationDetail,
             StorageMethod storageMethod,
             String storageDescription,
-            String handoverPlaceName
+            String legacyHandoverPlaceName
     ) {
         this.finderId = finderId;
         this.name = name;
@@ -113,8 +145,12 @@ public class FoundItem {
         this.foundLocationDetail = foundLocationDetail;
         this.storageMethod = storageMethod;
         this.storageDescription = storageDescription;
-        this.handoverPlaceName = handoverPlaceName;
+        this.legacyHandoverPlaceName = legacyHandoverPlaceName;
+        this.handoverStatus = storageMethod == StorageMethod.HANDED_TO_CENTER
+                ? HandoverStatus.LEGACY_UNVERIFIED
+                : HandoverStatus.NONE;
         this.status = FoundItemStatus.ACTIVE;
+        this.visionStatus = VisionStatus.FAILED;
         this.createdAt = Instant.now().truncatedTo(ChronoUnit.MICROS);
         this.updatedAt = this.createdAt;
         this.expiredAt = this.createdAt.plus(DEFAULT_EXPIRATION_PERIOD);
@@ -126,6 +162,20 @@ public class FoundItem {
 
     public BigDecimal getFoundLongitude() {
         return foundLocation == null ? null : BigDecimal.valueOf(foundLocation.getX());
+    }
+
+    public String getHandoverPlaceName() {
+        return legacyHandoverPlaceName;
+    }
+
+    public int beginImageAnalysis() {
+        analysisGeneration++;
+        visionStatus = VisionStatus.PENDING;
+        return analysisGeneration;
+    }
+
+    public boolean isTerminal() {
+        return status == FoundItemStatus.EXPIRED || status == FoundItemStatus.RETURNED;
     }
 
     @PreUpdate

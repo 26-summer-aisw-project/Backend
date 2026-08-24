@@ -186,7 +186,7 @@ class JwtSecurityIntegrationTest {
 
 	private void assertJsonError(String body, String code) throws Exception {
 		var json = objectMapper.readTree(body);
-		assertThat(json.propertyNames()).containsExactlyInAnyOrder("code", "message", "fieldErrors", "timestamp");
+		assertThat(json.propertyNames()).containsExactlyInAnyOrder("code", "message");
 		assertThat(json.get("code").asString()).isEqualTo(code);
 	}
 

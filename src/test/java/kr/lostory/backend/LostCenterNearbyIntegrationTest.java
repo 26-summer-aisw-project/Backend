@@ -64,7 +64,7 @@ class LostCenterNearbyIntegrationTest {
                 finder.getId()
         );
 
-        assertThat(responses).hasSize(3);
+        assertThat(responses).hasSize(10);
         assertThat(responses.get(0).centerKey()).isEqualTo("ssu_primary_student_service_team");
         assertThat(responses.get(0).distanceMeters()).isLessThan(responses.get(1).distanceMeters());
         assertThat(responses.get(1).distanceMeters()).isLessThan(responses.get(2).distanceMeters());

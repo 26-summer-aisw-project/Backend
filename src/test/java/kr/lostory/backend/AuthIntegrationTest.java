@@ -10,7 +10,6 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import org.assertj.core.data.Offset;
 
 import kr.lostory.backend.auth.JwtTokenService;
 import kr.lostory.backend.user.domain.User;
@@ -23,7 +22,6 @@ import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
-import kr.lostory.backend.config.LostCenterProperties;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
@@ -37,16 +35,7 @@ import static org.mockito.Mockito.when;
 class AuthIntegrationTest {
 
 	private static final Set<String> USER_KEYS = Set.of("id", "email", "roles");
-	private static final Set<String> ERROR_KEYS = Set.of("code", "message", "fieldErrors", "timestamp");
-	private static final Set<String> FOUND_ITEM_KEYS = Set.of(
-		"id", "finderId", "name", "category", "description", "foundAt", "foundLatitude", "foundLongitude",
-		"foundAddress", "foundLocationDetail", "storageMethod", "storageDescription", "handoverPlaceName",
-		"status", "createdAt", "updatedAt", "expiredAt"
-	);
-	private static final Set<String> NEARBY_CENTER_KEYS = Set.of(
-		"id", "centerKey", "name", "parentPlace", "address", "detailLocation", "phoneNumber",
-		"operatingHours", "verificationStatus", "latitude", "longitude", "distanceMeters"
-	);
+	private static final Set<String> ERROR_KEYS = Set.of("code", "message");
 	private static final String PASSWORD = "Correct-Horse-42";
 
 	@LocalServerPort
@@ -63,9 +52,6 @@ class AuthIntegrationTest {
 
 	@Autowired
 	private UserRepository userRepository;
-
-	@Autowired
-	private LostCenterProperties lostCenterProperties;
 
 	private final HttpClient httpClient = HttpClient.newHttpClient();
 
@@ -156,81 +142,17 @@ class AuthIntegrationTest {
 	}
 
 	@Test
-	void foundItemAndNearbyLostCentersUseExactHttpContracts() throws Exception {
+	void retiredFoundItemFullCreateUsesNotFoundContract() throws Exception {
 		// Given
 		User finder = userRepository.saveAndFlush(new User(uniqueEmail(), "test-password-hash"));
 		String token = tokenService.issue(finder).value();
-		String requestBody = """
-				{
-				  "name": "검은 카드지갑",
-				  "category": "WALLET_CARD",
-				  "description": "카드가 여러 장 든 검은색 가죽 카드지갑",
-				  "foundAt": "2026-08-04T18:30:00+09:00",
-				  "foundLatitude": 37.4961234,
-				  "foundLongitude": 126.9575432,
-				  "foundAddress": "서울특별시 동작구 상도로 369",
-				  "foundLocationDetail": "학생회관 2층",
-				  "storageMethod": "HANDED_TO_CENTER",
-				  "handoverPlaceName": "학생회관 안내데스크"
-				}
-				""";
 
 		// When
-		HttpResponse<String> created = authorizedPost("/api/v1/found-items", requestBody, token);
-		JsonNode createdBody = json(created);
-		long foundItemId = createdBody.get("id").asLong();
-		HttpResponse<String> foundItem = get("/api/v1/found-items/" + foundItemId, token);
-		HttpResponse<String> nearbyCenters = get(
-				"/api/v1/found-items/" + foundItemId + "/nearby-lost-centers",
-				token
-		);
+		HttpResponse<String> response = authorizedPost("/api/v1/found-items", "{}", token);
 
 		// Then
-		assertThat(created.statusCode()).isEqualTo(201);
-		assertThat(created.headers().firstValue("location")).hasValue("/api/v1/found-items/" + foundItemId);
-		assertThat(fieldNames(createdBody)).isEqualTo(FOUND_ITEM_KEYS);
-		assertThat(createdBody.get("finderId").asLong()).isEqualTo(finder.getId());
-		assertThat(createdBody.get("name").asString()).isEqualTo("검은 카드지갑");
-		assertThat(createdBody.get("foundAt").asString()).isEqualTo("2026-08-04T09:30:00Z");
-		assertThat(createdBody.get("storageMethod").asString()).isEqualTo("HANDED_TO_CENTER");
-		assertThat(createdBody.get("storageDescription").isNull()).isTrue();
-		assertThat(createdBody.get("handoverPlaceName").asString()).isEqualTo("학생회관 안내데스크");
-		assertThat(createdBody.get("status").asString()).isEqualTo("ACTIVE");
-		assertThat(foundItem.statusCode()).isEqualTo(200);
-		JsonNode foundItemBody = json(foundItem);
-		assertThat(fieldNames(foundItemBody)).isEqualTo(FOUND_ITEM_KEYS);
-		assertThat(foundItemBody.get("id").asLong()).isEqualTo(foundItemId);
-		assertThat(foundItemBody.get("finderId").asLong()).isEqualTo(finder.getId());
-		assertThat(foundItemBody.get("name").asString()).isEqualTo(createdBody.get("name").asString());
-		assertThat(foundItemBody.get("category").asString()).isEqualTo(createdBody.get("category").asString());
-		assertThat(foundItemBody.get("description").asString()).isEqualTo(createdBody.get("description").asString());
-		assertThat(foundItemBody.get("foundAt").asString()).isEqualTo(createdBody.get("foundAt").asString());
-		assertThat(foundItemBody.get("foundLatitude").asDouble())
-				.isCloseTo(createdBody.get("foundLatitude").asDouble(), Offset.offset(1e-9));
-		assertThat(foundItemBody.get("foundLongitude").asDouble())
-				.isCloseTo(createdBody.get("foundLongitude").asDouble(), Offset.offset(1e-9));
-		assertThat(foundItemBody.get("foundAddress").asString()).isEqualTo(createdBody.get("foundAddress").asString());
-		assertThat(foundItemBody.get("foundLocationDetail").asString()).isEqualTo(createdBody.get("foundLocationDetail").asString());
-		assertThat(foundItemBody.get("storageMethod").asString()).isEqualTo(createdBody.get("storageMethod").asString());
-		assertThat(foundItemBody.get("storageDescription").isNull()).isEqualTo(createdBody.get("storageDescription").isNull());
-		assertThat(foundItemBody.get("handoverPlaceName").asString()).isEqualTo(createdBody.get("handoverPlaceName").asString());
-		assertThat(foundItemBody.get("status").asString()).isEqualTo(createdBody.get("status").asString());
-		assertThat(foundItemBody.get("createdAt").asText()).isEqualTo(createdBody.get("createdAt").asText());
-		assertThat(foundItemBody.get("updatedAt").asText()).isNotBlank();
-		assertThat(foundItemBody.get("expiredAt").asText()).isNotBlank();
-		assertThat(nearbyCenters.statusCode()).isEqualTo(200);
-		assertThat(nearbyCenters.headers().firstValue("content-type")).hasValueSatisfying(
-				contentType -> assertThat(contentType).startsWith("application/json")
-		);
-		JsonNode nearbyCenterBodies = json(nearbyCenters);
-		assertThat(nearbyCenterBodies).hasSize(lostCenterProperties.nearbyLimit()).allSatisfy(center ->
-				assertThat(fieldNames(center)).isEqualTo(NEARBY_CENTER_KEYS)
-		);
-		assertThat(nearbyCenterBodies.values().stream().map(center -> center.get("distanceMeters").asDouble()).toList())
-				.isSorted();
-		assertNoSessionCookie(created);
-		assertNoSessionCookie(foundItem);
-		assertNoSessionCookie(nearbyCenters);
+		assertError(response, 404, "COMMON-004");
+		assertNoSessionCookie(response);
 	}
 
 	@Test
@@ -388,7 +310,6 @@ class AuthIntegrationTest {
 		return Map.of(
 			"status", response.statusCode(),
 			"code", error.get("code").asString(),
-			"message", error.get("message").asString(),
-			"fieldErrors", error.get("fieldErrors").toString());
+			"message", error.get("message").asString());
 	}
 }

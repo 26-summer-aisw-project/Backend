@@ -24,11 +24,26 @@ public class FoundItemImage {
     @Column(name = "original_filename", nullable = false, length = 255)
     private String originalFilename;
 
-    @Column(name = "stored_filename", nullable = false, length = 255)
+    @Column(name = "stored_filename", length = 255)
     private String storedFilename;
 
-    @Column(name = "storage_path", nullable = false, length = 500)
+    @Column(name = "legacy_storage_path", length = 500)
     private String storagePath;
+
+    @Column(name = "object_key", length = 500)
+    private String objectKey;
+
+    @Column(name = "is_current", nullable = false)
+    private boolean current;
+
+    @Column(name = "analysis_generation", nullable = false)
+    private int analysisGeneration;
+
+    @Column(name = "upload_operation_id", unique = true)
+    private java.util.UUID uploadOperationId;
+
+    @Column(name = "object_deleted_at")
+    private Instant objectDeletedAt;
 
     @Column(name = "content_type", nullable = false, length = 100)
     private String contentType;
@@ -57,5 +72,34 @@ public class FoundItemImage {
         this.contentType = contentType;
         this.sizeBytes = sizeBytes;
         this.createdAt = Instant.now();
+    }
+
+    public FoundItemImage(
+            Long foundItemId,
+            String originalFilename,
+            String objectKey,
+            String contentType,
+            long sizeBytes,
+            int analysisGeneration,
+            java.util.UUID uploadOperationId
+    ) {
+        this.foundItemId = foundItemId;
+        this.originalFilename = originalFilename;
+        this.objectKey = objectKey;
+        this.current = true;
+        this.analysisGeneration = analysisGeneration;
+        this.uploadOperationId = uploadOperationId;
+        this.contentType = contentType;
+        this.sizeBytes = sizeBytes;
+        this.createdAt = Instant.now();
+    }
+
+    public void replace() {
+        current = false;
+    }
+
+    public void markObjectDeleted(Instant deletedAt) {
+        current = false;
+        objectDeletedAt = deletedAt;
     }
 }

@@ -4,8 +4,20 @@ import kr.lostory.backend.common.exception.ErrorCode;
 import kr.lostory.backend.common.exception.LostoryException;
 import kr.lostory.backend.founditem.domain.FoundItem;
 import kr.lostory.backend.founditem.domain.FoundItemRepository;
+import kr.lostory.backend.founditem.domain.FoundItemStatus;
+import kr.lostory.backend.founditem.domain.ItemFeature;
+import kr.lostory.backend.founditem.domain.ItemFeatureKind;
+import kr.lostory.backend.founditem.domain.ItemFeatureRepository;
+import kr.lostory.backend.founditem.domain.ItemFeatureSource;
+import kr.lostory.backend.founditem.domain.ItemFeatureVisibility;
+import kr.lostory.backend.founditem.domain.VisionStatus;
 import kr.lostory.backend.founditem.domain.StorageMethod;
+import kr.lostory.backend.founditem.presentation.FoundItemDetailResponse;
+import kr.lostory.backend.founditem.presentation.FoundItemListResponse;
 import kr.lostory.backend.founditem.presentation.FoundItemResponse;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -14,9 +26,11 @@ import org.springframework.util.StringUtils;
 public class FoundItemService {
 
     private final FoundItemRepository foundItemRepository;
+    private final ItemFeatureRepository featureRepository;
 
-    public FoundItemService(FoundItemRepository foundItemRepository) {
+    public FoundItemService(FoundItemRepository foundItemRepository, ItemFeatureRepository featureRepository) {
         this.foundItemRepository = foundItemRepository;
+        this.featureRepository = featureRepository;
     }
 
     @Transactional
@@ -60,6 +74,47 @@ public class FoundItemService {
         }
 
         return FoundItemResponse.from(foundItem);
+    }
+
+    @Transactional(readOnly = true)
+    public FoundItemDetailResponse detail(Long id, Long requesterId, boolean admin) {
+        FoundItem item = foundItemRepository.findById(id)
+                .orElseThrow(() -> new LostoryException(ErrorCode.RESOURCE_NOT_FOUND));
+        if (!admin && !item.getFinderId().equals(requesterId)) {
+            throw new LostoryException(ErrorCode.RESOURCE_NOT_FOUND);
+        }
+        return FoundItemDetailResponse.from(item, suggestion(item));
+    }
+
+    @Transactional(readOnly = true)
+    public FoundItemListResponse list(Long requesterId, FoundItemStatus status, int page, int pageSize) {
+        PageRequest pageable = PageRequest.of(page - 1, pageSize, Sort.by(Sort.Direction.DESC, "createdAt"));
+        Page<FoundItem> result = status == null
+                ? foundItemRepository.findByFinderId(requesterId, pageable)
+                : foundItemRepository.findByFinderIdAndStatus(requesterId, status, pageable);
+        return FoundItemListResponse.from(result, page, pageSize);
+    }
+
+    private FoundItemDetailResponse.VisionSuggestion suggestion(FoundItem item) {
+        if (item.getVisionStatus() != VisionStatus.READY) {
+            return null;
+        }
+        String color = null;
+        String label = null;
+        for (ItemFeature feature : featureRepository
+                .findByItemIdAndSourceAndVisibilityOrderByKindAscOrdinalAsc(
+                        item.getId(), ItemFeatureSource.AI, ItemFeatureVisibility.MATCH_ONLY)) {
+            if (feature.getKind() == ItemFeatureKind.COLOR && color == null) {
+                color = feature.getFeatureValue();
+            }
+            if (feature.getKind() == ItemFeatureKind.LABEL && label == null) {
+                label = feature.getFeatureValue();
+            }
+        }
+        String publicDescription = color == null ? label : label == null ? color : color + " " + label;
+        return publicDescription == null
+                ? null
+                : new FoundItemDetailResponse.VisionSuggestion(color, publicDescription);
     }
 
     private void validateStorage(CreateFoundItemCommand command) {

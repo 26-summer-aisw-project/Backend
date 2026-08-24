@@ -1,6 +1,8 @@
 package kr.lostory.backend.founditem.domain;
 
 import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface FoundItemImageRepository extends JpaRepository<FoundItemImage, Long> {
@@ -8,4 +10,10 @@ public interface FoundItemImageRepository extends JpaRepository<FoundItemImage, 
     long countByFoundItemId(Long foundItemId);
 
     List<FoundItemImage> findAllByFoundItemIdOrderByCreatedAtAsc(Long foundItemId);
+
+    Optional<FoundItemImage> findByFoundItemIdAndCurrentTrue(Long foundItemId);
+
+    boolean existsByUploadOperationId(UUID uploadOperationId);
+
+    Optional<FoundItemImage> findByObjectKey(String objectKey);
 }
