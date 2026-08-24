@@ -1,5 +1,6 @@
 package kr.lostory.backend.founditem.presentation;
 
+import java.time.Instant;
 import kr.lostory.backend.founditem.domain.FoundItem;
 import kr.lostory.backend.founditem.domain.FoundItemStatus;
 import kr.lostory.backend.founditem.domain.HandoverStatus;
@@ -10,7 +11,8 @@ public record FoundItemRegistrationResponse(
         FoundItemStatus status,
         StorageMethod storageMethod,
         String centerId,
-        HandoverStatus handoverStatus
+        HandoverStatus handoverStatus,
+        Instant handedAt
 ) {
     public static FoundItemRegistrationResponse from(FoundItem item) {
         return new FoundItemRegistrationResponse(
@@ -18,6 +20,7 @@ public record FoundItemRegistrationResponse(
                 item.getStatus(),
                 item.getStorageMethod(),
                 item.getCenterId() == null ? null : item.getCenterId().toString(),
-                item.getHandoverStatus());
+                item.getHandoverStatus(),
+                item.getHandedAt());
     }
 }

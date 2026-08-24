@@ -1,6 +1,7 @@
 package kr.lostory.backend.founditem.application;
 
 import java.time.Clock;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import kr.lostory.backend.config.FoundItemProperties;
 import kr.lostory.backend.common.exception.ErrorCode;
@@ -8,6 +9,7 @@ import kr.lostory.backend.common.exception.LostoryException;
 import kr.lostory.backend.founditem.domain.FoundItem;
 import kr.lostory.backend.founditem.domain.FoundItemRepository;
 import kr.lostory.backend.founditem.domain.FoundItemStatus;
+import kr.lostory.backend.founditem.domain.HandoverStatus;
 import kr.lostory.backend.founditem.domain.ItemFeature;
 import kr.lostory.backend.founditem.domain.ItemFeatureKind;
 import kr.lostory.backend.founditem.domain.ItemFeatureRepository;
@@ -102,6 +104,26 @@ public class FoundItemService {
         if (!matchingFieldsUnchanged || !confirmedFeaturesUnchanged) {
             reportRepository.markOpenCandidatesStale();
         }
+        return FoundItemRegistrationResponse.from(item);
+    }
+
+    @Transactional
+    public FoundItemRegistrationResponse confirmHandover(Long id, Long requesterId) {
+        FoundItem item = foundItemRepository.findByIdForUpdate(id)
+                .orElseThrow(() -> new LostoryException(ErrorCode.RESOURCE_NOT_FOUND));
+        if (!item.getFinderId().equals(requesterId)) {
+            throw new LostoryException(ErrorCode.RESOURCE_NOT_FOUND);
+        }
+        if (item.getStatus() != FoundItemStatus.PENDING_HANDOVER
+                || item.getStorageMethod() != StorageMethod.HANDED_TO_CENTER
+                || item.getHandoverStatus() != HandoverStatus.NONE
+                || item.getCenterId() == null
+                || item.getHandedAt() != null
+                || !centerRepository.isEligibleForHandover(
+                        item.getCenterId(), item.getFoundLatitude(), item.getFoundLongitude())) {
+            throw new LostoryException(ErrorCode.INVALID_REQUEST);
+        }
+        item.confirmHandover(clock.instant().truncatedTo(ChronoUnit.MICROS));
         return FoundItemRegistrationResponse.from(item);
     }
 

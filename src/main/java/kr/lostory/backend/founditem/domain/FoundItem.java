@@ -225,6 +225,12 @@ public class FoundItem {
         }
     }
 
+    public void confirmHandover(Instant confirmedAt) {
+        this.handedAt = confirmedAt;
+        this.handoverStatus = HandoverStatus.USER_CONFIRMED;
+        this.status = FoundItemStatus.ACTIVE;
+    }
+
     private boolean decimalEquals(BigDecimal current, BigDecimal next) {
         return current != null && current.compareTo(next) == 0;
     }
