@@ -64,6 +64,7 @@ import static org.mockito.Mockito.when;
 		"vision.processing-region=asia-northeast3",
 		"vision.data-retention=PT0S",
 		"vision.cost-limit-usd=9.50",
+		"vision.daily-job-limit=99",
 		"vision.timeout=PT4S",
 		"matching.radius-min=501",
 		"matching.radius-base=1001",
@@ -198,6 +199,7 @@ class P0ConfigurationAndErrorIntegrationTest {
 		assertThat(visionProperties.processingRegion()).isEqualTo("asia-northeast3");
 		assertThat(visionProperties.dataRetention()).isZero();
 		assertThat(visionProperties.costLimitUsd()).isEqualByComparingTo("9.50");
+		assertThat(visionProperties.dailyJobLimit()).isEqualTo(99);
 		assertThat(visionProperties.timeout()).isEqualTo(Duration.ofSeconds(4));
 		assertThat(matchingProperties.radiusMin()).isEqualTo(501);
 		assertThat(matchingProperties.radiusBase()).isEqualTo(1001);
@@ -241,7 +243,17 @@ class P0ConfigurationAndErrorIntegrationTest {
 		System.out.println("P0_CONFIG_OBSERVABLE vision-timeout=PT10S accepted zero-and-over-ceiling=rejected");
 	}
 
+	@Test
+	void visionDailyJobLimitRejectsNonPositiveValues() {
+		visionPropertiesRunner("PT10S", "1").run(context -> assertThat(context).hasNotFailed());
+		visionPropertiesRunner("PT10S", "0").run(context -> assertThat(context).hasFailed());
+	}
+
 	private ApplicationContextRunner visionPropertiesRunner(String timeout) {
+		return visionPropertiesRunner(timeout, "100");
+	}
+
+	private ApplicationContextRunner visionPropertiesRunner(String timeout, String dailyJobLimit) {
 		return new ApplicationContextRunner()
 			.withUserConfiguration(VisionPropertiesBindingConfig.class)
 			.withPropertyValues(
@@ -250,6 +262,7 @@ class P0ConfigurationAndErrorIntegrationTest {
 				"vision.processing-region=asia-northeast3",
 				"vision.data-retention=PT0S",
 				"vision.cost-limit-usd=9.50",
+				"vision.daily-job-limit=" + dailyJobLimit,
 				"vision.timeout=" + timeout);
 	}
 

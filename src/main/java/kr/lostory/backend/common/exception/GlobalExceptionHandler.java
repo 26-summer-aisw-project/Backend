@@ -1,5 +1,6 @@
 package kr.lostory.backend.common.exception;
 
+import jakarta.servlet.http.HttpServletRequest;
 import kr.lostory.backend.common.response.ErrorResponse;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -10,6 +11,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.multipart.support.MissingServletRequestPartException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
@@ -47,6 +49,18 @@ public class GlobalExceptionHandler {
         return ResponseEntity.badRequest().body(new ErrorResponse(ErrorCode.INVALID_REQUEST));
     }
 
+    @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
+    public ResponseEntity<ErrorResponse> handleMethodNotSupported(
+            HttpRequestMethodNotSupportedException exception,
+            HttpServletRequest request
+    ) {
+        if (request.getMethod().equals("POST")
+                && request.getRequestURI().matches("/api/v1/found-items/[0-9]+/image")) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(new ErrorResponse(ErrorCode.RESOURCE_NOT_FOUND));
+        }
+        return ResponseEntity.status(HttpStatus.METHOD_NOT_ALLOWED).body(new ErrorResponse(ErrorCode.INVALID_REQUEST));
+    }
+
     private HttpStatus resolveStatus(ErrorCode errorCode) {
         return switch (errorCode) {
             case INVALID_REQUEST -> HttpStatus.BAD_REQUEST;
@@ -55,6 +69,7 @@ public class GlobalExceptionHandler {
             case RESOURCE_NOT_FOUND -> HttpStatus.NOT_FOUND;
             case INTERNAL_SERVER_ERROR -> HttpStatus.INTERNAL_SERVER_ERROR;
             case MEDIA_NOT_AVAILABLE -> HttpStatus.GONE;
+            case VISION_CAPACITY_EXCEEDED -> HttpStatus.TOO_MANY_REQUESTS;
             case DUPLICATE_EMAIL -> HttpStatus.CONFLICT;
             case INVALID_CREDENTIALS, INVALID_TOKEN -> HttpStatus.UNAUTHORIZED;
         };

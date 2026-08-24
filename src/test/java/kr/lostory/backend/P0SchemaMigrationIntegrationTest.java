@@ -96,6 +96,8 @@ class P0SchemaMigrationIntegrationTest {
                 .isEqualTo("found_item_vision_jobs");
         assertThat(jdbc.queryForObject("SELECT to_regclass('public.object_deletion_outbox')", String.class))
                 .isEqualTo("object_deletion_outbox");
+        assertThat(jdbc.queryForObject("SELECT to_regclass('public.vision_daily_admissions')", String.class))
+                .isEqualTo("vision_daily_admissions");
         assertThat(jdbc.queryForObject(
                 "SELECT count(*) FROM information_schema.columns WHERE table_schema = 'public' "
                         + "AND table_name = 'object_deletion_outbox' "

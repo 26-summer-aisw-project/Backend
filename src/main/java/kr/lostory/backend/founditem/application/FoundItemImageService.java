@@ -29,6 +29,7 @@ public class FoundItemImageService {
     private final FoundItemRepository foundItemRepository;
     private final FoundItemImageRepository imageRepository;
     private final FoundItemImagePersistenceService persistenceService;
+    private final VisionDailyAdmissionService admissionService;
     private final ObjectStorage storage;
     private final FoundItemProperties properties;
     private final Clock clock;
@@ -37,6 +38,7 @@ public class FoundItemImageService {
             FoundItemRepository foundItemRepository,
             FoundItemImageRepository imageRepository,
             FoundItemImagePersistenceService persistenceService,
+            VisionDailyAdmissionService admissionService,
             ObjectStorage storage,
             FoundItemProperties properties,
             Clock clock
@@ -44,6 +46,7 @@ public class FoundItemImageService {
         this.foundItemRepository = foundItemRepository;
         this.imageRepository = imageRepository;
         this.persistenceService = persistenceService;
+        this.admissionService = admissionService;
         this.storage = storage;
         this.properties = properties;
         this.clock = clock;
@@ -51,11 +54,13 @@ public class FoundItemImageService {
 
     public FoundItem createDraft(Long finderId, MultipartFile image) {
         ValidatedImage validated = validate(image);
+        VisionDailyAdmissionService.Admission admission = admissionService.reserve();
         UUID operationId = UUID.randomUUID();
         String key = "found-items/" + UUID.randomUUID();
         try {
             storage.put(key, validated.bytes(), validated.contentType(), operationId);
         } catch (ObjectStorageException exception) {
+            admissionService.release(admission);
             throw new LostoryException(ErrorCode.INTERNAL_SERVER_ERROR);
         }
 
@@ -68,6 +73,7 @@ public class FoundItemImageService {
                             validated.bytes().length, operationId));
         } catch (RuntimeException exception) {
             compensate(key);
+            admissionService.release(admission);
             throw exception;
         }
     }
@@ -80,11 +86,13 @@ public class FoundItemImageService {
         }
 
         ValidatedImage validated = validate(image);
+        VisionDailyAdmissionService.Admission admission = admissionService.reserve();
         UUID operationId = UUID.randomUUID();
         String key = "found-items/" + UUID.randomUUID();
         try {
             storage.put(key, validated.bytes(), validated.contentType(), operationId);
         } catch (ObjectStorageException exception) {
+            admissionService.release(admission);
             throw new LostoryException(ErrorCode.INTERNAL_SERVER_ERROR);
         }
 
@@ -96,6 +104,7 @@ public class FoundItemImageService {
             return FoundItemImageResponse.from(saved);
         } catch (RuntimeException exception) {
             compensate(key);
+            admissionService.release(admission);
             throw exception;
         }
     }

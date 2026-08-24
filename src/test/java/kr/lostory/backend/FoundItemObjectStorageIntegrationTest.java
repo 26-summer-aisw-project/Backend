@@ -56,6 +56,8 @@ import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.scheduling.annotation.EnableScheduling;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 @ActiveProfiles("test")
 @Import({PostgresTestContainerConfig.class, FoundItemObjectStorageIntegrationTest.StorageTestConfig.class})
@@ -109,12 +111,11 @@ class FoundItemObjectStorageIntegrationTest {
         User foreign = user(UserRole.USER);
         FoundItem item = item(owner);
 
-        HttpResponse<byte[]> upload = multipart(owner, item, List.of(part("image", "wallet.png", "image/png", PNG)));
+        imageService.upload(item.getId(), owner.getId(), image("wallet.png", PNG));
         HttpResponse<byte[]> ownerGet = get(owner, item);
         HttpResponse<byte[]> adminGet = get(admin, item);
         HttpResponse<byte[]> foreignGet = get(foreign, item);
 
-        assertThat(upload.statusCode()).isEqualTo(201);
         assertThat(storage.keys()).singleElement()
                 .satisfies(key -> assertThat(key).matches("found-items/[0-9a-f-]{36}"));
         assertThat(storage.metadata().getFirst().uploadOperationId()).isNotNull();
@@ -125,27 +126,47 @@ class FoundItemObjectStorageIntegrationTest {
         assertThat(adminGet.statusCode()).isEqualTo(200);
         assertThat(adminGet.body()).isEqualTo(PNG);
         assertThat(foreignGet.statusCode()).isEqualTo(404);
-        assertThat(new String(upload.body(), StandardCharsets.UTF_8))
-                .doesNotContain("wallet.png", "found-items/", "imageUrl", "objectKey");
     }
 
     @Test
-    void malformedMultipartInputsAreRejectedWithoutStorageWrites() throws Exception {
+    void publicImageReplacementPostReturnsCommon404WithoutReplacementOutboxWork() throws Exception {
+        User owner = user(UserRole.USER);
+        FoundItem item = item(owner);
+        outboxRepository.deleteAll();
+
+        HttpResponse<byte[]> response = multipart(
+                owner, item, List.of(part("image", "wallet.png", "image/png", PNG)));
+
+        JsonNode body = new ObjectMapper().readTree(response.body());
+        assertThat(response.statusCode()).isEqualTo(404);
+        assertThat(body.propertyNames()).containsExactlyInAnyOrder("code", "message");
+        assertThat(body.get("code").asString()).isEqualTo("COMMON-004");
+        assertThat(storage.keys()).isEmpty();
+        assertThat(imageRepository.countByFoundItemId(item.getId())).isZero();
+        assertThat(visionJobRepository.countByFoundItemId(item.getId())).isZero();
+        assertThat(outboxRepository.count()).isZero();
+    }
+
+    @Test
+    void directImageCapabilityRejectsMalformedFilesWithoutStorageWrites() {
         User owner = user(UserRole.USER);
         FoundItem item = item(owner);
         byte[] oversized = new byte[5 * 1024 * 1024 + 1];
         System.arraycopy(PNG, 0, oversized, 0, PNG.length);
 
-        List<HttpResponse<byte[]>> responses = List.of(
-                multipart(owner, item, List.of(part("image", "empty.png", "image/png", new byte[0]))),
-                multipart(owner, item, List.of(part("image", "spoof.png", "image/png", "not png".getBytes()))),
-                multipart(owner, item, List.of(part("image", "wrong.jpg", "image/jpeg", PNG))),
-                multipart(owner, item, List.of(part("image", "big.png", "image/png", oversized))),
-                multipart(owner, item, List.of(
-                        part("image", "one.png", "image/png", PNG),
-                        part("image", "two.png", "image/png", PNG))));
+        assertThatThrownBy(() -> imageService.upload(item.getId(), owner.getId(),
+                new MockMultipartFile("image", "empty.png", "image/png", new byte[0])))
+                .isInstanceOf(LostoryException.class);
+        assertThatThrownBy(() -> imageService.upload(item.getId(), owner.getId(),
+                new MockMultipartFile("image", "spoof.png", "image/png", "not png".getBytes())))
+                .isInstanceOf(LostoryException.class);
+        assertThatThrownBy(() -> imageService.upload(item.getId(), owner.getId(),
+                new MockMultipartFile("image", "wrong.jpg", "image/jpeg", PNG)))
+                .isInstanceOf(LostoryException.class);
+        assertThatThrownBy(() -> imageService.upload(item.getId(), owner.getId(),
+                new MockMultipartFile("image", "big.png", "image/png", oversized)))
+                .isInstanceOf(LostoryException.class);
 
-        assertThat(responses).extracting(HttpResponse::statusCode).containsOnly(400);
         assertThat(storage.keys()).isEmpty();
         assertThat(imageRepository.countByFoundItemId(item.getId())).isZero();
     }

@@ -1,5 +1,6 @@
 package kr.lostory.backend.common.exception;
 
+import java.util.List;
 import kr.lostory.backend.common.response.ErrorResponse;
 import org.junit.jupiter.api.Test;
 import org.springframework.core.MethodParameter;
@@ -9,6 +10,8 @@ import org.springframework.validation.BeanPropertyBindingResult;
 import org.springframework.validation.FieldError;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.mock.http.MockHttpInputMessage;
+import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -69,6 +72,31 @@ class GlobalExceptionHandlerTest {
         assertErrorContract(ErrorCode.DUPLICATE_EMAIL, HttpStatus.CONFLICT, "AUTH-001", "An account with this email already exists.");
         assertErrorContract(ErrorCode.INVALID_CREDENTIALS, HttpStatus.UNAUTHORIZED, "AUTH-002", "Invalid email or password.");
         assertErrorContract(ErrorCode.INVALID_TOKEN, HttpStatus.UNAUTHORIZED, "AUTH-003", "The access token is invalid.");
+    }
+
+    @Test
+    void visionCapacityErrorHasSafeTooManyRequestsContract() {
+        assertErrorContract(ErrorCode.VISION_CAPACITY_EXCEEDED, HttpStatus.TOO_MANY_REQUESTS,
+                "VISION-001", "Vision processing capacity is unavailable.");
+    }
+
+    @Test
+    void methodNotSupported404IsLimitedToRemovedImagePost() {
+        GlobalExceptionHandler handler = new GlobalExceptionHandler();
+        HttpRequestMethodNotSupportedException exception =
+                new HttpRequestMethodNotSupportedException("POST", List.of("GET"));
+        MockHttpServletRequest removedImagePost = new MockHttpServletRequest(
+                "POST", "/api/v1/found-items/42/image");
+        MockHttpServletRequest unrelatedPut = new MockHttpServletRequest(
+                "PUT", "/api/v1/found-items/42/image");
+
+        ResponseEntity<ErrorResponse> removed = handler.handleMethodNotSupported(exception, removedImagePost);
+        ResponseEntity<ErrorResponse> unrelated = handler.handleMethodNotSupported(exception, unrelatedPut);
+
+        assertThat(removed.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(removed.getBody().code()).isEqualTo("COMMON-004");
+        assertThat(unrelated.getStatusCode()).isEqualTo(HttpStatus.METHOD_NOT_ALLOWED);
+        assertThat(unrelated.getBody().code()).isEqualTo("COMMON-001");
     }
 
     private void assertErrorContract(ErrorCode errorCode, HttpStatus status, String code, String message) {
