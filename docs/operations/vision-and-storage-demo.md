@@ -22,7 +22,7 @@
 
 ## 최소 권한과 비밀 주입
 
-- 운영 workload에는 사용자 관리 service account를 연결하고 Application Default Credentials를 사용한다. Owner/Editor/Viewer 기본 역할과 장기 service-account key 파일은 사용하지 않는다.
+- Vision 운영 workload에는 사용자 관리 service account를 연결하고 Google Application Default Credentials를 사용한다. S3-compatible object storage는 AWS SDK `DefaultCredentialsProvider`를 사용한다. Owner/Editor/Viewer 기본 역할과 장기 service-account key 파일은 사용하지 않는다.
 - 애플리케이션 버킷에는 필요한 object create/read/delete 권한만 부여하고 다른 버킷 접근은 차단한다. Vision 요청이 GCS URI를 사용하지 않으므로 광범위한 `storage.objectViewer` 프로젝트 권한은 부여하지 않는다.
 - `JWT_SECRET`, ADC, 버킷 이름과 배포 환경값은 secret manager/배포 플랫폼 환경 변수로 주입한다. 저장소, PR 본문, 로그, 데모 영상에 값이나 credential 경로를 남기지 않는다.
 - 데모 전 service account 권한, API enable 상태, 버킷 CORS/공개 접근 차단을 별도 계정으로 확인한다.
@@ -37,6 +37,16 @@
 | 제한 live 확인 | 전용 프로젝트와 버킷, 두 provider `enabled=true` | 사진 한 장 업로드, 현재 사진 조회·교체, Vision READY/FAILED, 이전 객체 outbox 삭제를 확인 |
 
 live 확인은 자동 테스트의 대체가 아니다. 먼저 fake 전체 테스트를 통과한 뒤 승인된 운영자가 최소 이미지로 한 번 수행한다. 실제 GCP 접근이 없었다면 PR에 “live GCP 미실행”을 명시한다.
+
+## 매 데모 또는 릴리스 후보마다 live smoke gate
+
+승인된 운영자는 전용 프로젝트, 비공개 private bucket, secret injection을 사용해 비식별 이미지 한 장으로 다음 순서를 직접 실행한다.
+
+1. private upload 후 `DRAFT 생성`을 확인한다.
+2. 생성한 소유자의 `소유자 이미지 조회`가 성공하고, 다른 사용자의 `타인 접근 거부`가 확인되는지 검증한다.
+3. Vision 결과가 `READY`인지 확인한다. 애플리케이션 정책상 `FAILED`는 허용하지만 `FAILED는 live smoke 성공이 아니다`; 따라서 데모와 릴리스 gate는 `READY`와 앞의 권한 검증을 모두 요구한다.
+4. 같은 DRAFT에서 `사진 교체`를 수행하고, prior object에 대한 `deletion outbox` 처리가 완료되는지 확인한다.
+5. 데모가 끝나면 `VISION_ENABLED=false`, `OBJECT_STORAGE_ENABLED=false`로 되돌린 뒤 두 provider가 모두 disabled인지 확인한다.
 
 ## 데모 녹화 체크리스트
 
