@@ -8,7 +8,7 @@
 
 ## 1. 공통 규칙
 
-- 모든 ID와 JWT `sub`는 10진 문자열이다.
+- 경로의 ID와 User·센터·습득물·신고·후보 응답 ID, JWT `sub`는 10진 문자열이다. 현재 사진 교체 응답의 이미지 `id`, `foundItemId`만 JSON number다.
 - 가입·로그인만 공개다. 나머지 P0 경로는 Bearer JWT가 필요하다.
 - P1 대시보드 경로는 활성 대시보드 관리 계정만, `/admin/*`은 ADMIN만 사용한다.
 - 오류는 `{ "code": "...", "message": "..." }` 형식이다.
@@ -25,7 +25,7 @@
 | 사용자 인계 | P0 공개값 `NONE`, `USER_CONFIRMED` |
 | LostReport | `OPEN`, `CLOSED`, `EXPIRED` |
 
-`DRAFT`와 `PENDING_HANDOVER`는 후보가 아니다. `DRAFT` 기본 TTL은 `PT24H`, 등록된 습득물과 신고의 기본 TTL은 각각 `P14D`다. `RETURNED`는 P1 센터 담당자만 만들 수 있다. 기존 데이터의 `LEGACY_UNVERIFIED`는 저장소 내부 상태이며 P0 응답에서는 `NONE`으로 숨긴다.
+`BLOCKED`·`DELETED` 사용자는 로그인과 기존 토큰의 `/users/me` 조회를 통과할 수 없다. `DRAFT`와 `PENDING_HANDOVER`는 후보가 아니다. `DRAFT` 기본 TTL은 `PT24H`, 등록된 습득물과 신고의 기본 TTL은 각각 `P14D`다. `RETURNED`는 P1 센터 담당자만 만들 수 있다. 기존 데이터의 `LEGACY_UNVERIFIED`는 저장소 내부 상태이며 P0 응답에서는 `NONE`으로 숨긴다.
 
 ### 1.2 공통 오류
 
@@ -35,30 +35,9 @@
 { "code": "REPORT_NOT_OPEN", "message": "The lost report is not open." }
 ```
 
-### 1.3 공통 응답 객체
+### 1.3 FoundItem 응답 범위
 
-```json
-{
-  "id": "300",
-  "status": "ACTIVE",
-  "visionStatus": "READY",
-  "category": "WALLET",
-  "foundAt": "2026-08-23T08:00:00Z",
-  "foundLocation": { "latitude": 37.5665, "longitude": 126.9780 },
-  "confirmedFeatures": {
-    "color": "BLACK",
-    "publicDescription": "검은 카드 지갑"
-  },
-  "storageMethod": "HANDED_TO_CENTER",
-  "centerId": "20",
-  "handoverStatus": "USER_CONFIRMED",
-  "handedAt": "2026-08-23T09:10:00Z",
-  "createdAt": "2026-08-23T08:30:00Z",
-  "updatedAt": "2026-08-23T09:10:00Z"
-}
-```
-
-FoundItem 전체 표현은 소유자·ADMIN·권한 있는 센터 담당자에게만 반환한다. 원본 Vision 값, 스토리지 키, 비공개 특징은 포함하지 않는다.
+P0에는 모든 FoundItem 필드를 한 번에 반환하는 공통 응답이 없다. 아래 각 엔드포인트의 payload가 실제 계약이다. 원본 Vision 값, 스토리지 키, 비공개 특징은 어떤 P0 응답에도 포함하지 않는다.
 
 ## 2. P0: 인증과 센터 디렉터리
 
@@ -82,7 +61,7 @@ FoundItem 전체 표현은 소유자·ADMIN·권한 있는 센터 담당자에�
 #### login
 > POST `/auth/login`
 
-- 공개 엔드포인트다. 차단·삭제 계정도 일반적인 `401 INVALID_CREDENTIALS`로 처리한다.
+- 공개 엔드포인트다. 차단·삭제 계정도 일반적인 `401 AUTH-002`로 처리한다.
 
 **요청 payload**
 
@@ -196,7 +175,7 @@ FoundItem 전체 표현은 소유자·ADMIN·권한 있는 센터 담당자에�
 
 | 위치 | 필드 | 형식 | 설명 |
 |---|---|---|---|
-| Multipart | `image` | JPEG, PNG, WebP | 필수. 서버 제한 이내 이미지 |
+| Multipart | `image` | JPEG, PNG, WebP | 필수. 서버 제한 이내의 정확히 한 장이며 다른 multipart·form 필드는 허용하지 않는다. |
 
 **응답 payload — 201 Created**
 
@@ -218,10 +197,10 @@ FoundItem 전체 표현은 소유자·ADMIN·권한 있는 센터 담당자에�
 **응답 payload — 200 OK**
 
 ```json
-{ "id": "300", "status": "DRAFT", "visionStatus": "READY", "visionSuggestion": { "color": "BLACK", "publicDescription": "검은 카드 지갑" }, "draftExpiresAt": "2026-08-24T08:30:00Z" }
+{ "id": "300", "status": "DRAFT", "handoverStatus": "NONE", "visionStatus": "READY", "visionSuggestion": { "color": "BLACK", "publicDescription": "검은 카드 지갑" }, "draftExpiresAt": "2026-08-24T08:30:00Z" }
 ```
 
-`visionSuggestion`은 소유자 등록 화면에만 제공한다. 후보 응답에는 절대 포함하지 않는다.
+`visionSuggestion`은 Vision이 `READY`이고 색상 또는 LABEL이 있을 때만 채워진다. 이 값은 소유자와 ADMIN의 상세 조회에만 제공하며 후보 응답에는 절대 포함하지 않는다.
 
 #### get-found-item-image
 > GET `/found-items/{itemId}/image`
@@ -244,6 +223,7 @@ FoundItem 전체 표현은 소유자·ADMIN·권한 있는 센터 담당자에�
 > PUT `/found-items/{itemId}/image`
 
 - 소유자가 현재 사진 한 장을 원자적으로 교체한다. 새 Vision 세대를 시작하고 열린 신고 후보를 stale로 표시하며, 이전 객체는 삭제 outbox로 보낸다.
+- 교체 시 이전 AI 특징과 소유자가 확정한 `COLOR`·`PUBLIC_DESCRIPTION` 특징도 제거된다. 새 Vision 결과를 확인한 뒤 습득자는 등록 PATCH에서 특징을 다시 확정해야 한다.
 
 **요청 payload**
 
@@ -254,7 +234,7 @@ FoundItem 전체 표현은 소유자·ADMIN·권한 있는 센터 담당자에�
 **응답 payload — 200 OK**
 
 ```json
-{ "id": "501", "foundItemId": "300", "contentType": "image/png", "sizeBytes": 48213, "createdAt": "2026-08-23T08:40:00Z" }
+{ "id": 501, "foundItemId": 300, "contentType": "image/png", "sizeBytes": 48213, "createdAt": "2026-08-23T08:40:00Z" }
 ```
 
 #### list-my-found-items
@@ -278,7 +258,8 @@ FoundItem 전체 표현은 소유자·ADMIN·권한 있는 센터 담당자에�
 > PATCH `/found-items/{itemId}/registration`
 
 - 장소·시각·분류·사용자 확정 특징·보관 방식을 저장한다.
-- 사진 또는 매칭 입력 변경은 기존 AI 확정을 무효화하고 열린 신고 후보를 stale 상태로 만든다.
+- Vision은 보조 제안이다. `READY`는 이 요청의 선행조건이 아니며 `PENDING`·`FAILED`여도 사용자가 직접 입력한 `confirmedFeatures`로 등록을 완료할 수 있다.
+- 이 PATCH는 매칭 입력과 사용자 확정 특징을 저장하고 열린 신고 후보를 stale로 표시하지만 Vision 작업을 다시 만들지 않는다. 사진 교체만 새 Vision 작업을 만든다.
 
 **요청 payload**
 
@@ -293,10 +274,16 @@ FoundItem 전체 표현은 소유자·ADMIN·권한 있는 센터 담당자에�
 }
 ```
 
+| 필드 | 규칙 |
+|---|---|
+| `centerId` | `HANDED_TO_CENTER`에서만 필수다. 다른 보관 방식에서는 생략하거나 `null`이어야 한다. |
+| `storageDescription` | `MOVED_TO_SAFE_PLACE`에서만 필수다. 다른 보관 방식에서는 생략하거나 `null`이어야 한다. |
+| `handedAt` | 서버 전용 기록값이다. 클라이언트는 비어 있지 않은 값을 보낼 수 없다. |
+
 **응답 payload — 200 OK**
 
 ```json
-{ "id": "300", "status": "PENDING_HANDOVER", "storageMethod": "HANDED_TO_CENTER", "centerId": "20", "handoverStatus": "NONE" }
+{ "id": "300", "status": "PENDING_HANDOVER", "storageMethod": "HANDED_TO_CENTER", "centerId": "20", "handoverStatus": "NONE", "handedAt": null }
 ```
 
 `LEFT_IN_PLACE`·`MOVED_TO_SAFE_PLACE`는 이 요청 성공 뒤 `ACTIVE`가 된다. `HANDED_TO_CENTER`는 `centerId`가 현재 추천 목록에 있을 때만 `PENDING_HANDOVER`가 된다.
@@ -304,7 +291,7 @@ FoundItem 전체 표현은 소유자·ADMIN·권한 있는 센터 담당자에�
 #### get-found-item-nearby-centers
 > GET `/found-items/{itemId}/nearby-centers`
 
-- 등록 화면에서 해당 습득물의 습득 장소 기준 인계 후보를 다시 조회한다.
+- 등록 화면에서 해당 습득물의 습득 장소 기준 인계 후보를 다시 조회한다. `foundLocation`이 아직 저장되지 않은 DRAFT에서는 사용할 수 없다.
 
 **요청 payload**
 
@@ -315,7 +302,7 @@ FoundItem 전체 표현은 소유자·ADMIN·권한 있는 센터 담당자에�
 **응답 payload — 200 OK**
 
 ```json
-{ "data": [{ "id": "20", "name": "캠퍼스 분실물 센터", "contactPhone": "02-000-0000", "distanceMeters": 240 }] }
+{ "data": [{ "id": "20", "name": "캠퍼스 분실물 센터", "contactPhone": "02-000-0000", "location": { "latitude": 37.5665, "longitude": 126.9780 }, "distanceMeters": 240.0 }] }
 ```
 
 #### confirm-handover
@@ -326,14 +313,12 @@ FoundItem 전체 표현은 소유자·ADMIN·권한 있는 센터 담당자에�
 
 **요청 payload**
 
-```json
-{}
-```
+요청 본문 없이 호출한다.
 
 **응답 payload — 200 OK**
 
 ```json
-{ "id": "300", "status": "ACTIVE", "handoverStatus": "USER_CONFIRMED", "centerId": "20", "handedAt": "2026-08-23T09:10:00Z" }
+{ "id": "300", "status": "ACTIVE", "storageMethod": "HANDED_TO_CENTER", "handoverStatus": "USER_CONFIRMED", "centerId": "20", "handedAt": "2026-08-23T09:10:00Z" }
 ```
 
 P1 센터 수락 전에는 `PATCH /found-items/{itemId}/registration`으로 인계 선택을 수정·철회할 수 있다.

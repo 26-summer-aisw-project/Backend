@@ -44,7 +44,7 @@ public class AuthService {
 			.filter(candidate -> passwordEncoder.matches(request.password(), candidate.getPasswordHash()))
 			.orElseThrow(() -> new LostoryException(ErrorCode.INVALID_CREDENTIALS));
 		JwtTokenService.IssuedToken token = tokenService.issue(user);
-		return new LoginResponse(token.value(), "Bearer", token.expiresAt(), UserResponse.from(user));
+		return new LoginResponse(token.value(), "Bearer", token.expiresAt(), LoginResponse.LoginUser.from(user));
 	}
 
 	@Transactional(readOnly = true)

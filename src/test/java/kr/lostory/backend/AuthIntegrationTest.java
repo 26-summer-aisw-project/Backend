@@ -34,7 +34,8 @@ import static org.mockito.Mockito.when;
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class AuthIntegrationTest {
 
-	private static final Set<String> USER_KEYS = Set.of("id", "email", "roles");
+	private static final Set<String> SAFE_USER_KEYS = Set.of("id", "email", "displayName", "status", "roles");
+	private static final Set<String> LOGIN_USER_KEYS = Set.of("id", "status");
 	private static final Set<String> ERROR_KEYS = Set.of("code", "message");
 	private static final String PASSWORD = "Correct-Horse-42";
 
@@ -100,7 +101,7 @@ class AuthIntegrationTest {
 		HttpResponse<String> login = post("/api/v1/auth/login", credentials(" " + email.toUpperCase() + " ", PASSWORD));
 		JsonNode loginJson = json(login);
 		assertThat(signup.statusCode()).describedAs(signup.body()).isEqualTo(201);
-		assertUser(json(signup), email);
+		assertSafeUser(json(signup), email, "테스트 사용자");
 		assertThat(login.statusCode()).describedAs(login.body()).isEqualTo(200);
 		HttpResponse<String> me = get("/api/v1/users/me", loginJson.get("accessToken").asString());
 
@@ -109,9 +110,9 @@ class AuthIntegrationTest {
 		assertThat(loginJson.get("accessToken").asString()).isNotBlank();
 		assertThat(loginJson.get("tokenType").asString()).isEqualTo("Bearer");
 		assertThat(loginJson.get("expiresAt").asString()).isNotBlank();
-		assertUser(loginJson.get("user"), email);
+		assertLoginUser(loginJson.get("user"));
 		assertThat(me.statusCode()).isEqualTo(200);
-		assertUser(json(me), email);
+		assertSafeUser(json(me), email, "테스트 사용자");
 		assertNoSessionCookie(signup);
 		assertNoSessionCookie(login);
 		assertNoSessionCookie(me);
@@ -132,6 +133,7 @@ class AuthIntegrationTest {
 
 		// Then
 		assertThat(signup.statusCode()).isEqualTo(201);
+		assertSafeUser(json(signup), email, "새 사용자");
 		assertThat(jdbcTemplate.queryForObject(
 				"SELECT display_name FROM users WHERE email = ?",
 				String.class,
@@ -286,11 +288,21 @@ class AuthIntegrationTest {
 		return node.propertyNames().stream().collect(java.util.stream.Collectors.toSet());
 	}
 
-	private void assertUser(JsonNode user, String email) {
-		assertThat(fieldNames(user)).isEqualTo(USER_KEYS);
+	private void assertSafeUser(JsonNode user, String email, String displayName) {
+		assertThat(fieldNames(user)).isEqualTo(SAFE_USER_KEYS);
+		assertThat(user.get("id").isString()).isTrue();
 		assertThat(user.get("id").asLong()).isPositive();
 		assertThat(user.get("email").asString()).isEqualTo(email);
+		assertThat(user.get("displayName").asString()).isEqualTo(displayName);
+		assertThat(user.get("status").asString()).isEqualTo("ACTIVE");
 		assertThat(user.get("roles").values().stream().map(JsonNode::asString).toList()).containsExactly("USER");
+	}
+
+	private void assertLoginUser(JsonNode user) {
+		assertThat(fieldNames(user)).isEqualTo(LOGIN_USER_KEYS);
+		assertThat(user.get("id").isString()).isTrue();
+		assertThat(user.get("id").asLong()).isPositive();
+		assertThat(user.get("status").asString()).isEqualTo("ACTIVE");
 	}
 
 	private void assertError(HttpResponse<String> response, int status, String code) throws Exception {
