@@ -19,6 +19,9 @@ import kr.lostory.backend.founditem.application.FoundItemService;
 import kr.lostory.backend.founditem.domain.FoundItemStatus;
 import kr.lostory.backend.founditem.domain.StorageMethod;
 import kr.lostory.backend.founditem.presentation.FinalizeFoundItemRegistrationRequest;
+import kr.lostory.backend.lostcenter.application.LostCenterService;
+import kr.lostory.backend.lostcenter.presentation.CenterLocationRequest;
+import kr.lostory.backend.lostcenter.presentation.CreateLostCenterRequest;
 import kr.lostory.backend.user.domain.User;
 import kr.lostory.backend.user.domain.UserRole;
 import kr.lostory.backend.user.repository.UserRepository;
@@ -61,6 +64,7 @@ class P0AuditPrivacyIntegrationTest {
     @Autowired JdbcTemplate jdbc;
     @Autowired FoundItemDraftApiIntegrationTest.FakeObjectStorage storage;
     @Autowired RollbackProbe rollbackProbe;
+    @Autowired CenterRollbackProbe centerRollbackProbe;
 
     private final HttpClient http = HttpClient.newHttpClient();
     private final ObjectMapper mapper = new ObjectMapper();
@@ -130,6 +134,77 @@ class P0AuditPrivacyIntegrationTest {
         assertThat(auditJson).doesNotContain(
                 objectKey, PRIVATE_FILENAME, PRIVATE_STORAGE, owner.getEmail(),
                 "37.5665", "126.9780", "raw-ai-payload", "https://private.invalid", "credential-value");
+    }
+
+    @Test
+    void existingCenterDirectoryUpdateWritesMinimalAuditThroughRealHttp() throws Exception {
+        // Given
+        User admin = user(UserRole.ADMIN);
+        Long centerId = center("admin_verified", false);
+
+        // When
+        HttpResponse<String> response = request("PATCH", "/api/v1/admin/lost-centers/" + centerId,
+                tokens.issue(admin).value(), "{\"contactPhone\":\"02-1111-2222\"}", true);
+
+        // Then
+        assertThat(response.statusCode()).isEqualTo(200);
+        assertThat(auditRows()).singleElement().satisfies(row -> {
+            assertThat(row.get("action")).isEqualTo("CENTER_DIRECTORY_UPDATED");
+            assertThat(row.get("target_type")).isEqualTo("LOST_CENTER");
+            assertThat(((Number) row.get("target_id")).longValue()).isEqualTo(centerId);
+            assertThat(((Number) row.get("user_id")).longValue()).isEqualTo(admin.getId());
+            assertMinimalMetadata(row);
+        });
+    }
+
+    @Test
+    void adminCenterDirectoryCreateWritesMinimalAuditAndUserCreateWritesNothing() throws Exception {
+        // Given
+        User admin = user(UserRole.ADMIN);
+        User user = user(UserRole.USER);
+        String createBody = """
+                {"name":"created center","address":"private center address","contactPhone":"02-2222-3333",
+                 "location":{"latitude":37.5665,"longitude":126.9780}}
+                """;
+        String rejectedBody = createBody.replace("created center", "rejected center");
+
+        // When
+        HttpResponse<String> created = request("POST", "/api/v1/admin/lost-centers",
+                tokens.issue(admin).value(), createBody, true);
+        HttpResponse<String> rejected = request("POST", "/api/v1/admin/lost-centers",
+                tokens.issue(user).value(), rejectedBody, true);
+
+        // Then
+        assertThat(created.statusCode()).isEqualTo(201);
+        Long centerId = Long.valueOf(mapper.readTree(created.body()).get("id").asString());
+        assertThat(rejected.statusCode()).isEqualTo(403);
+        assertThat(mapper.readTree(rejected.body()).get("code").asString()).isEqualTo("COMMON-003");
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM lost_centers WHERE name = 'rejected center'",
+                Integer.class)).isZero();
+        assertThat(auditRows()).singleElement().satisfies(row -> {
+            assertThat(row.get("action")).isEqualTo("CENTER_DIRECTORY_CREATED");
+            assertThat(row.get("target_type")).isEqualTo("LOST_CENTER");
+            assertThat(((Number) row.get("target_id")).longValue()).isEqualTo(centerId);
+            assertThat(((Number) row.get("user_id")).longValue()).isEqualTo(admin.getId());
+            assertMinimalMetadata(row);
+        });
+    }
+
+    @Test
+    void forcedPostCreateExceptionRollsBackCenterAndAudit() {
+        // Given
+        User admin = user(UserRole.ADMIN);
+        CreateLostCenterRequest request = new CreateLostCenterRequest(
+                "rolled back center", "private rollback address", "02-3333-4444",
+                new CenterLocationRequest(new BigDecimal("37.5665"), new BigDecimal("126.9780")));
+
+        // When / Then
+        assertThatThrownBy(() -> centerRollbackProbe.createThenFail(admin.getId(), request))
+                .isInstanceOf(ForcedRollback.class);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM lost_centers WHERE name = 'rolled back center'",
+                Integer.class)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM audit_logs WHERE action = 'CENTER_DIRECTORY_CREATED'",
+                Integer.class)).isZero();
     }
 
     @Test
@@ -305,6 +380,11 @@ class P0AuditPrivacyIntegrationTest {
         RollbackProbe rollbackProbe(FoundItemService service) {
             return new RollbackProbe(service);
         }
+
+        @Bean
+        CenterRollbackProbe centerRollbackProbe(LostCenterService service) {
+            return new CenterRollbackProbe(service);
+        }
     }
 
     static class RollbackProbe {
@@ -321,6 +401,20 @@ class P0AuditPrivacyIntegrationTest {
                 FinalizeFoundItemRegistrationRequest request
         ) {
             service.finalizeRegistration(itemId, userId, request);
+            throw new ForcedRollback();
+        }
+    }
+
+    static class CenterRollbackProbe {
+        private final LostCenterService service;
+
+        CenterRollbackProbe(LostCenterService service) {
+            this.service = service;
+        }
+
+        @Transactional
+        public void createThenFail(Long adminId, CreateLostCenterRequest request) {
+            service.create(adminId, request);
             throw new ForcedRollback();
         }
     }

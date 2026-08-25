@@ -23,8 +23,11 @@ public class AdminLostCenterController {
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    public AdminLostCenterResponse create(@Valid @RequestBody CreateLostCenterRequest request) {
-        return lostCenterService.create(request);
+    public AdminLostCenterResponse create(
+            @AuthenticationPrincipal Jwt jwt,
+            @Valid @RequestBody CreateLostCenterRequest request
+    ) {
+        return lostCenterService.create(Long.valueOf(jwt.getSubject()), request);
     }
 
     @PatchMapping("/{centerId}")

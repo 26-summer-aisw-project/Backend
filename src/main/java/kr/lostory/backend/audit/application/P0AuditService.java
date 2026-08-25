@@ -43,6 +43,11 @@ public class P0AuditService {
         record(userId, "CENTER_DIRECTORY_UPDATED", LOST_CENTER, centerId);
     }
 
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void centerDirectoryCreated(Long adminId, Long centerId) {
+        record(adminId, "CENTER_DIRECTORY_CREATED", LOST_CENTER, centerId);
+    }
+
     private void record(Long userId, String action, String targetType, Long targetId) {
         repository.save(new AuditLog(userId, action, targetType, targetId,
                 "{\"actionVersion\":1,\"resourceId\":" + targetId + "}"));
