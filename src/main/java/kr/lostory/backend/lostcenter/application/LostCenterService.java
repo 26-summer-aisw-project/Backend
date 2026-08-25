@@ -66,12 +66,14 @@ public class LostCenterService {
     }
 
     @Transactional
-    public AdminLostCenterResponse create(CreateLostCenterRequest request) {
+    public AdminLostCenterResponse create(Long adminId, CreateLostCenterRequest request) {
         CenterLocationRequest location = request.location();
         LostCenter center = LostCenter.adminVerified(new LostCenterDetails(
                 request.name().strip(), request.address().strip(), location.latitude(), location.longitude(),
                 request.contactPhone().strip(), true));
-        return AdminLostCenterResponse.from(lostCenterRepository.save(center));
+        LostCenter savedCenter = lostCenterRepository.save(center);
+        audit.centerDirectoryCreated(adminId, savedCenter.getId());
+        return AdminLostCenterResponse.from(savedCenter);
     }
 
     @Transactional
