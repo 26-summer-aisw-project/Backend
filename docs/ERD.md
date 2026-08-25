@@ -1,3 +1,81 @@
+# LOSTORY 데이터 모델
+
+**P0 구현 기준:** Flyway `V1`–`V25` · 2026-08-25
+
+아래 “P0 구현 스키마”가 현재 서버와 migration의 기준이다. 뒤의 “초기 개념 모델”은 P1 검토를 위해 보존한 설계 메모이며, 같은 이름의 필드나 제약이 충돌하면 P0 구현 스키마를 따른다. 적용된 migration은 수정하지 않고 다음 버전으로만 보강한다.
+
+## P0 구현 스키마
+
+### 핵심 관계
+
+```text
+users 1 ── N found_items 1 ── N found_item_images
+                         ├── N found_item_vision_jobs
+                         └── N item_features
+users 1 ── N lost_reports 1 ── N report_waypoints
+                         └── N match_candidates N ── 1 found_items
+lost_centers 1 ── N found_items
+object_deletion_outbox: 객체 저장소 삭제 작업의 독립 재시도 큐
+vision_daily_admissions: UTC 날짜별 Vision 작업 예약량
+```
+
+### found_items
+
+| 필드 | 타입/제약 | P0 의미 |
+|---|---|---|
+| `id`, `finder_id` | bigint PK, users FK | 습득물·소유자 |
+| `status` | text | `DRAFT`, `PENDING_HANDOVER`, `ACTIVE`, `EXPIRED`, `RETURNED` |
+| `vision_status` | text | `PENDING`, `READY`, `FAILED` |
+| `analysis_generation` | integer ≥ 0 | 사진 교체 때 증가하여 오래된 Vision 결과 차단 |
+| `draft_expires_at` | timestamptz nullable | DRAFT 전용, 기본 생성 시각 + `PT24H` |
+| `category`, `found_at`, 위치·설명 | DRAFT에서 nullable | 등록 확정 뒤 필수 |
+| `storage_method` | text nullable | `LEFT_IN_PLACE`, `MOVED_TO_SAFE_PLACE`, `HANDED_TO_CENTER` |
+| `storage_description` | text nullable | 안전 장소 이동일 때만 사용 |
+| `center_id` | bigint FK nullable | 센터 인계일 때만 사용 |
+| `handover_status` | text | `NONE`, `USER_CONFIRMED`, 내부 레거시 `LEGACY_UNVERIFIED` |
+| `handed_at` | timestamptz nullable | 사용자 인계 확정의 서버 시각 |
+| `legacy_handover_place_name` | text nullable | V19 이전 인계 데이터 보존, 신규 쓰기 금지 |
+| `expired_at` | timestamptz nullable | 등록 후 기본 `P14D`; `expired_at <= now`면 후보 제외 |
+
+상태와 보관 방식은 하나의 CHECK로 결합한다. 센터 선택 전에는 `PENDING_HANDOVER/NONE`, 사용자 확인 뒤에는 `ACTIVE/USER_CONFIRMED`다. 레거시 종료 행은 불변이며 `LEGACY_UNVERIFIED`를 사용자 확인으로 조작할 수 없다.
+
+### found_item_images와 Vision
+
+| 테이블 | 핵심 필드/제약 |
+|---|---|
+| `found_item_images` | `object_key`, `is_current`, `analysis_generation`, `upload_operation_id`, `object_deleted_at`; 항목당 현재 사진 하나의 partial unique index |
+| `found_item_vision_jobs` | `(found_item_id,image_id,analysis_generation)` unique; `PENDING/PROCESSING/READY/FAILED/SUPERSEDED`, lease와 완료 시각 상태 CHECK |
+| `vision_daily_admissions` | UTC `admission_date` PK, 음수가 아닌 `reserved_count`; 기본 일일 한도 100 |
+| `item_features` | `COLOR/BRAND/LABEL/PUBLIC_DESCRIPTION/OCR_TEXT`; `FINDER` 우선, 그다음 AI; 결정적 선택을 위한 `(item_id,kind,source,visibility,ordinal,id)` index |
+
+V19의 `legacy_storage_path`는 읽기·복구 판단용으로 유지하고 신규 업로드에는 쓰지 않는다. 교체·DRAFT 정리·종료 미디어 정리에서 삭제할 객체는 DB transaction 안에서 `object_deletion_outbox`에 먼저 기록한다.
+
+### object_deletion_outbox
+
+| 필드 | 제약/운영 의미 |
+|---|---|
+| `object_key` | 비어 있지 않은 삭제 대상 |
+| `idempotency_key` | unique, 동일 삭제 중복 방지 |
+| `status` | `PENDING`, `PROCESSING`, `DONE` |
+| `attempt_count`, `next_attempt_at` | 재시도 횟수와 다음 실행 시각 |
+| `lease_owner`, `lease_until` | PROCESSING일 때만 필수 |
+| `last_error_code`, `last_error` | 안전한 실패 분류와 진단 |
+| `completed_at` | DONE일 때만 필수 |
+
+worker는 lease를 획득하고 삭제를 멱등 실행한다. 실패는 backoff 뒤 재시도하며 DB 행 삭제 성공을 객체 삭제 성공으로 추정하지 않는다.
+
+### lost_reports, report_waypoints, match_candidates
+
+| 테이블 | P0 보강 필드/제약 |
+|---|---|
+| `lost_reports` | `effective_search_radius_meters` 500–3000, `radius_policy_version`, JSON 배열 `center_guidance`, `candidates_stale`, `last_matched_at`, `matching_policy_version`, 상태 `OPEN/CLOSED/EXPIRED` |
+| `report_waypoints` | 신고별 1–10개 순서 핀, 중복 좌표 제거 |
+| `match_candidates` | 신고·순위와 신고·습득물 unique, score 0–100, private `score_breakdown`, 정책 버전 |
+
+반경은 인접 핀 거리 중앙값에 `1000 + 0.10 × median`을 적용해 500–3000 m로 제한하고 최종 미터만 `HALF_UP` 반올림한다. 후보 점수는 위치/시간/분류/색상/설명 `0.35/0.20/0.20/0.15/0.10`이며 최종값만 소수 둘째 자리 `HALF_UP`이다. 후보는 `ACTIVE AND expired_at > database_now`만 대상으로 하고 score DESC, FoundItem ID ASC로 최대 5개를 교체한다.
+
+## 초기 개념 모델
+
 ## Entity 정의
 
 ### 사용자 (User)
@@ -559,4 +637,3 @@ D1 (대시보드 구현에 필요한 테이블)
 - `payment_refunds`
 - `reward_catalog`
 - `reward_redemptions`
-

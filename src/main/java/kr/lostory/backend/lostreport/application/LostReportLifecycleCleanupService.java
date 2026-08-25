@@ -36,10 +36,12 @@ public class LostReportLifecycleCleanupService {
         return expireAt(clock.instant());
     }
 
-    @Transactional(readOnly = true)
-    public void requireOpen(Long reportId, Long requesterId) {
+    @Transactional
+    public Instant requireOpen(Long reportId, Long requesterId) {
+        Instant now = clock.instant();
+        expireReportAt(reportId, now);
         List<String> statuses = jdbc.queryForList(
-                "SELECT status FROM lost_reports WHERE id = ? AND reporter_id = ?",
+                "SELECT status FROM lost_reports WHERE id = ? AND reporter_id = ? FOR UPDATE",
                 String.class, reportId, requesterId);
         if (statuses.isEmpty()) {
             throw new LostoryException(ErrorCode.RESOURCE_NOT_FOUND);
@@ -47,6 +49,44 @@ public class LostReportLifecycleCleanupService {
         if (!statuses.getFirst().equals("OPEN")) {
             throw new LostoryException(ErrorCode.REPORT_NOT_OPEN);
         }
+        return now;
+    }
+
+    @Transactional
+    public Instant databaseNow() {
+        return jdbc.queryForObject("SELECT clock_timestamp()", Timestamp.class).toInstant();
+    }
+
+    @Transactional
+    public int expireCandidateItems(Long reportId, Instant now) {
+        Timestamp boundary = Timestamp.from(now);
+        List<Long> expiredIds = jdbc.queryForList("""
+                UPDATE found_items item
+                SET status = 'EXPIRED', updated_at = ?
+                WHERE item.status = 'ACTIVE' AND item.expired_at <= ?
+                  AND EXISTS (
+                      SELECT 1 FROM match_candidates candidate
+                      WHERE candidate.report_id = ? AND candidate.item_id = item.id
+                  )
+                RETURNING item.id
+                """, Long.class, boundary, boundary, reportId);
+        if (!expiredIds.isEmpty()) {
+            jdbc.update("""
+                    UPDATE lost_reports SET candidates_stale = true, updated_at = ?
+                    WHERE status = 'OPEN' AND expired_at > ? AND candidates_stale = false
+                    """, boundary, boundary);
+        }
+        return expiredIds.size();
+    }
+
+    @Transactional
+    public void expireLockedReport(Long reportId, Instant now) {
+        expireReportAt(reportId, now);
+    }
+
+    @Transactional
+    public void applyExpiry(Long reportId) {
+        expireReportAt(reportId, clock.instant());
     }
 
     private int expireAt(Instant now) {
@@ -60,5 +100,16 @@ public class LostReportLifecycleCleanupService {
             jdbc.update("DELETE FROM match_candidates WHERE report_id = ?", reportId);
         }
         return reportIds.size();
+    }
+
+    private void expireReportAt(Long reportId, Instant now) {
+        Timestamp boundary = Timestamp.from(now);
+        int expired = jdbc.update("""
+                UPDATE lost_reports SET status = 'EXPIRED', updated_at = ?
+                WHERE id = ? AND status = 'OPEN' AND expired_at <= ?
+                """, boundary, reportId, boundary);
+        if (expired == 1) {
+            jdbc.update("DELETE FROM match_candidates WHERE report_id = ?", reportId);
+        }
     }
 }

@@ -6,6 +6,8 @@ import java.util.List;
 import java.util.UUID;
 import kr.lostory.backend.common.storage.ObjectStorage;
 import kr.lostory.backend.config.VisionProperties;
+import kr.lostory.backend.founditem.application.MatchingFeatureResolver.MatchingFeatures;
+import kr.lostory.backend.lostreport.domain.LostReportRepository;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -28,19 +30,25 @@ public class VisionJobWorker {
     private final VisionProvider provider;
     private final VisionFeatureExtractor extractor = new VisionFeatureExtractor();
     private final VisionProperties properties;
+    private final LostReportRepository reportRepository;
+    private final MatchingFeatureResolver featureResolver;
 
     public VisionJobWorker(
             JdbcTemplate jdbc,
             PlatformTransactionManager transactionManager,
             ObjectStorage storage,
             VisionProvider provider,
-            VisionProperties properties
+            VisionProperties properties,
+            LostReportRepository reportRepository,
+            MatchingFeatureResolver featureResolver
     ) {
         this.jdbc = jdbc;
         this.transactions = new TransactionTemplate(transactionManager);
         this.storage = storage;
         this.provider = provider;
         this.properties = properties;
+        this.reportRepository = reportRepository;
+        this.featureResolver = featureResolver;
     }
 
     @Scheduled(
@@ -167,6 +175,7 @@ public class VisionJobWorker {
         if (verifyCurrent(claim) == null) {
             return;
         }
+        MatchingFeatures before = featureResolver.resolveForMatching(claim.foundItemId());
         jdbc.update("""
                 DELETE FROM item_features
                 WHERE item_id = ? AND source = 'AI' AND visibility = 'MATCH_ONLY'
@@ -190,6 +199,14 @@ public class VisionJobWorker {
                     last_error = NULL, completed_at = clock_timestamp(), updated_at = clock_timestamp()
                 WHERE id = ? AND status = 'PROCESSING' AND lease_owner = ?
                 """, claim.jobId(), claim.leaseOwner());
+        MatchingFeatures after = featureResolver.resolveForMatching(claim.foundItemId());
+        boolean eligible = Boolean.TRUE.equals(jdbc.queryForObject("""
+                SELECT status = 'ACTIVE' AND expired_at > CURRENT_TIMESTAMP
+                FROM found_items WHERE id = ?
+                """, Boolean.class, claim.foundItemId()));
+        if (eligible && !before.equals(after)) {
+            reportRepository.markOpenCandidatesStale();
+        }
     }
 
     private void failOrRetry(Claim claim, boolean ambiguous, String error) {
@@ -245,4 +262,5 @@ public class VisionJobWorker {
 
     private record CurrentImage(String objectKey) {
     }
+
 }

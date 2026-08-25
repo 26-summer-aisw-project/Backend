@@ -264,6 +264,78 @@ class FoundItemRegistrationApiIntegrationTest {
         assertError(wrongCenter, 400, "COMMON-001");
     }
 
+    @Test
+    void storageDescriptionAndPendingCenterOnlyEditsDoNotMarkCandidatesStale() throws Exception {
+        User owner = user();
+        String token = tokens.issue(owner).value();
+        String movedId = createDraft(token);
+        assertThat(patch(movedId, token,
+                registration("MOVED_TO_SAFE_PLACE", null, "first shelf")).statusCode()).isEqualTo(200);
+        long storageReport = insertReport(owner.getId(), "OPEN");
+
+        HttpResponse<String> storageOnly = patch(movedId, token,
+                registration("MOVED_TO_SAFE_PLACE", null, "second shelf"));
+
+        assertThat(storageOnly.statusCode()).isEqualTo(200);
+        assertThat(stale(storageReport)).isFalse();
+
+        String pendingId = createDraft(token);
+        String firstCenter = insertEligibleCenter();
+        String secondCenter = insertEligibleCenter();
+        assertThat(patch(pendingId, token,
+                registration("HANDED_TO_CENTER", firstCenter, null)).statusCode()).isEqualTo(200);
+        long centerReport = insertReport(owner.getId(), "OPEN");
+
+        HttpResponse<String> centerOnly = patch(pendingId, token,
+                registration("HANDED_TO_CENTER", secondCenter, null));
+
+        assertThat(centerOnly.statusCode()).isEqualTo(200);
+        assertThat(stale(centerReport)).isFalse();
+    }
+
+    @Test
+    void eachMatchingInputAndEligibilityTransitionMarksOpenUnexpiredReportsStale() throws Exception {
+        User owner = user();
+        String token = tokens.issue(owner).value();
+        String id = createDraft(token);
+        assertThat(patch(id, token, registration("LEFT_IN_PLACE", null, null)).statusCode()).isEqualTo(200);
+        long reportId = insertReport(owner.getId(), "OPEN");
+
+        assertThat(patch(id, token, registration("LEFT_IN_PLACE", null, null)
+                .replace("WALLET", "BAG")).statusCode()).isEqualTo(200);
+        assertThat(stale(reportId)).isTrue();
+        jdbc.update("UPDATE lost_reports SET candidates_stale = false WHERE id = ?", reportId);
+
+        assertThat(patch(id, token, registration("LEFT_IN_PLACE", null, null)
+                .replace("2026-08-23T08:00:00Z", "2026-08-23T08:01:00Z")
+                .replace("WALLET", "BAG")).statusCode()).isEqualTo(200);
+        assertThat(stale(reportId)).isTrue();
+        jdbc.update("UPDATE lost_reports SET candidates_stale = false WHERE id = ?", reportId);
+
+        assertThat(patch(id, token, registration("LEFT_IN_PLACE", null, null)
+                .replace("37.5665", "37.5666")
+                .replace("WALLET", "BAG")
+                .replace("2026-08-23T08:00:00Z", "2026-08-23T08:01:00Z")).statusCode()).isEqualTo(200);
+        assertThat(stale(reportId)).isTrue();
+        jdbc.update("UPDATE lost_reports SET candidates_stale = false WHERE id = ?", reportId);
+
+        assertThat(patch(id, token, registration("LEFT_IN_PLACE", null, null)
+                .replace("37.5665", "37.5666")
+                .replace("WALLET", "BAG")
+                .replace("2026-08-23T08:00:00Z", "2026-08-23T08:01:00Z")
+                .replace("BLACK", "BLUE")).statusCode()).isEqualTo(200);
+        assertThat(stale(reportId)).isTrue();
+
+        jdbc.update("UPDATE lost_reports SET candidates_stale = false WHERE id = ?", reportId);
+        String centerId = insertEligibleCenter();
+        assertThat(patch(id, token, registration("HANDED_TO_CENTER", centerId, null)
+                .replace("37.5665", "37.5666")
+                .replace("WALLET", "BAG")
+                .replace("2026-08-23T08:00:00Z", "2026-08-23T08:01:00Z")
+                .replace("BLACK", "BLUE")).statusCode()).isEqualTo(200);
+        assertThat(stale(reportId)).isTrue();
+    }
+
     private User user() {
         return users.saveAndFlush(new User(UUID.randomUUID() + "@task6.example", "hash"));
     }

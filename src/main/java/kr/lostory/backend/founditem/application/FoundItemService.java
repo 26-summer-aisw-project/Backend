@@ -1,6 +1,8 @@
 package kr.lostory.backend.founditem.application;
 
+import java.sql.Timestamp;
 import java.time.Clock;
+import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import kr.lostory.backend.audit.application.P0AuditService;
@@ -28,6 +30,7 @@ import kr.lostory.backend.lostreport.domain.LostReportRepository;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -42,6 +45,7 @@ public class FoundItemService {
     private final FoundItemProperties properties;
     private final Clock clock;
     private final P0AuditService audit;
+    private final JdbcTemplate jdbc;
 
     public FoundItemService(
             FoundItemRepository foundItemRepository,
@@ -50,7 +54,8 @@ public class FoundItemService {
             LostReportRepository reportRepository,
             FoundItemProperties properties,
             Clock clock,
-            P0AuditService audit
+            P0AuditService audit,
+            JdbcTemplate jdbc
     ) {
         this.foundItemRepository = foundItemRepository;
         this.featureRepository = featureRepository;
@@ -59,6 +64,7 @@ public class FoundItemService {
         this.properties = properties;
         this.clock = clock;
         this.audit = audit;
+        this.jdbc = jdbc;
     }
 
     @Transactional
@@ -76,6 +82,8 @@ public class FoundItemService {
             throw new LostoryException(ErrorCode.INVALID_REQUEST);
         }
         boolean finalizingDraft = item.getStatus() == FoundItemStatus.DRAFT;
+        Instant databaseNow = jdbc.queryForObject("SELECT clock_timestamp()", Timestamp.class).toInstant();
+        boolean wasMatchingEligible = matchingEligible(item, databaseNow);
         boolean withdrawingHandover = item.getStorageMethod() == StorageMethod.HANDED_TO_CENTER
                 && request.storageMethod() != StorageMethod.HANDED_TO_CENTER
                 && (item.getStatus() == FoundItemStatus.PENDING_HANDOVER
@@ -110,7 +118,9 @@ public class FoundItemService {
                 clock.instant(),
                 properties.ttl());
         replaceConfirmedFeatures(item.getId(), color, publicDescription);
-        if (!matchingFieldsUnchanged || !confirmedFeaturesUnchanged) {
+        boolean isMatchingEligible = matchingEligible(item, databaseNow);
+        if (!matchingFieldsUnchanged || !confirmedFeaturesUnchanged
+                || wasMatchingEligible != isMatchingEligible) {
             reportRepository.markOpenCandidatesStale();
         }
         if (finalizingDraft) {
@@ -139,6 +149,7 @@ public class FoundItemService {
             throw new LostoryException(ErrorCode.INVALID_REQUEST);
         }
         item.confirmHandover(clock.instant().truncatedTo(ChronoUnit.MICROS));
+        reportRepository.markOpenCandidatesStale();
         audit.handoverUserConfirmed(requesterId, item.getId());
         return FoundItemRegistrationResponse.from(item);
     }
@@ -191,6 +202,12 @@ public class FoundItemService {
                         itemId, kind, ItemFeatureSource.FINDER, ItemFeatureVisibility.CANDIDATE_VIEW).stream()
                 .map(ItemFeature::getFeatureValue)
                 .findFirst();
+    }
+
+    private boolean matchingEligible(FoundItem item, Instant databaseNow) {
+        return item.getStatus() == FoundItemStatus.ACTIVE
+                && item.getExpiredAt() != null
+                && item.getExpiredAt().isAfter(databaseNow);
     }
 
     private void replaceConfirmedFeatures(Long itemId, String color, String publicDescription) {

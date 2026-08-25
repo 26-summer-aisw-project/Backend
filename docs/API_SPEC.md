@@ -1,8 +1,8 @@
 # LOSTORY API 계약
 
-**상태:** P0/P1 구현 기준 · 2026-08-23 합의 반영
+**상태:** P0 구현 동기화 · 2026-08-25
 **Base path:** `/api/v1`
-**전송 형식:** HTTPS JSON. 사진 초안 생성만 `multipart/form-data`를 사용한다.
+**전송 형식:** HTTPS JSON. 사진 생성·교체는 `multipart/form-data`, 사진 조회는 원본 바이트를 사용한다.
 
 이 문서는 [MVP 구현 기준](./MVP_IMPLEMENTATION_PLAN.md)의 HTTP 계약이다. 이전 OpenAPI YAML과 이전 payload 초안은 이 문서와 다르면 사용하지 않는다.
 
@@ -22,12 +22,20 @@
 | User | `ACTIVE`, `BLOCKED`, `DELETED` |
 | FoundItem | `DRAFT`, `PENDING_HANDOVER`, `ACTIVE`, `EXPIRED`, `RETURNED` |
 | Vision | `PENDING`, `READY`, `FAILED` |
-| 사용자 인계 | `NONE`, `USER_CONFIRMED`, `CENTER_CONFIRMED`, `REJECTED` |
+| 사용자 인계 | P0 공개값 `NONE`, `USER_CONFIRMED` |
 | LostReport | `OPEN`, `CLOSED`, `EXPIRED` |
 
-`DRAFT`와 `PENDING_HANDOVER`는 후보가 아니다. `DRAFT`는 24시간 뒤 삭제된다. `RETURNED`는 P1 센터 담당자만 만들 수 있다.
+`DRAFT`와 `PENDING_HANDOVER`는 후보가 아니다. `DRAFT` 기본 TTL은 `PT24H`, 등록된 습득물과 신고의 기본 TTL은 각각 `P14D`다. `RETURNED`는 P1 센터 담당자만 만들 수 있다. 기존 데이터의 `LEGACY_UNVERIFIED`는 저장소 내부 상태이며 P0 응답에서는 `NONE`으로 숨긴다.
 
-### 1.2 공통 응답 객체
+### 1.2 공통 오류
+
+모든 오류 응답은 아래 두 필드만 사용한다. 닫히거나 만료된 신고의 수정·재종료·후보 조회는 `409 REPORT_NOT_OPEN`이다.
+
+```json
+{ "code": "REPORT_NOT_OPEN", "message": "The lost report is not open." }
+```
+
+### 1.3 공통 응답 객체
 
 ```json
 {
@@ -140,6 +148,7 @@ FoundItem 전체 표현은 소유자·ADMIN·권한 있는 센터 담당자에�
 ```
 
 반경은 서버 설정 1,000 m다. 목록 밖 센터는 P0에서 인계 대상으로 선택할 수 없다.
+목록은 활성 `official_verified`, `official_board_verified`, `official_local_verified`, `admin_verified`를 보여 주지만, P0 인계 등록은 앞의 세 공식 검증 상태만 허용한다. 따라서 `admin_verified`는 안내에는 나타날 수 있어도 인계 대상으로 확정할 수 없다.
 
 #### create-lost-center
 > POST `/admin/lost-centers`
@@ -213,6 +222,40 @@ FoundItem 전체 표현은 소유자·ADMIN·권한 있는 센터 담당자에�
 ```
 
 `visionSuggestion`은 소유자 등록 화면에만 제공한다. 후보 응답에는 절대 포함하지 않는다.
+
+#### get-found-item-image
+> GET `/found-items/{itemId}/image`
+
+- 소유자 또는 ADMIN이 현재 사진 원본을 조회한다. 객체 키나 서명 URL은 반환하지 않는다.
+
+**요청 payload**
+
+| 위치 | 필드 | 설명 |
+|---|---|---|
+| Path | `itemId` | 습득물 ID |
+
+**응답 payload — 200 OK**
+
+| Header | Body |
+|---|---|
+| 업로드한 `Content-Type` | 이미지 바이트 |
+
+#### replace-found-item-image
+> PUT `/found-items/{itemId}/image`
+
+- 소유자가 현재 사진 한 장을 원자적으로 교체한다. 새 Vision 세대를 시작하고 열린 신고 후보를 stale로 표시하며, 이전 객체는 삭제 outbox로 보낸다.
+
+**요청 payload**
+
+| 위치 | 필드 | 형식 | 설명 |
+|---|---|---|---|
+| Multipart | `image` | JPEG, PNG, WebP | 정확히 한 장, 다른 필드 없음 |
+
+**응답 payload — 200 OK**
+
+```json
+{ "id": "501", "foundItemId": "300", "contentType": "image/png", "sizeBytes": 48213, "createdAt": "2026-08-23T08:40:00Z" }
+```
 
 #### list-my-found-items
 > GET `/found-items`
@@ -295,6 +338,18 @@ FoundItem 전체 표현은 소유자·ADMIN·권한 있는 센터 담당자에�
 
 P1 센터 수락 전에는 `PATCH /found-items/{itemId}/registration`으로 인계 선택을 수정·철회할 수 있다.
 
+### 3.1 P0 인계 상태 전이
+
+| 현재 상태 | 요청/조건 | 다음 상태 | 인계 상태 | 비고 |
+|---|---|---|---|---|
+| `DRAFT` | 비센터 보관 방식으로 등록 확정 | `ACTIVE` | `NONE` | 센터·인계 시각 없음 |
+| `DRAFT` 또는 수정 가능 항목 | 추천 가능한 센터 선택 | `PENDING_HANDOVER` | `NONE` | 활성·검증·반경 내 센터만 가능 |
+| `PENDING_HANDOVER` | `:confirm-handover` | `ACTIVE` | `USER_CONFIRMED` | 서버 시각을 `handedAt`으로 저장 |
+| `PENDING_HANDOVER` | 비센터 방식으로 수정 | `ACTIVE` | `NONE` | 사용자 인계 선택 철회 |
+| `USER_CONFIRMED` + `ACTIVE` | 센터 또는 보관 방식을 수정 | `PENDING_HANDOVER` 또는 `ACTIVE` | `NONE` | P1 센터 수락 전만 허용, 감사 기록 |
+| `DRAFT`/`PENDING_HANDOVER`/`ACTIVE` | TTL 경계 도달 | 삭제 또는 `EXPIRED` | 기존 값 유지 | 후보에서 제외 |
+| `LEGACY_UNVERIFIED` | P0 조회 | 저장 상태 유지 | 응답은 `NONE` | 가짜 사용자 확인으로 승격 금지 |
+
 ## 4. P0: 신고·센터 안내·점수 후보
 
 #### create-lost-report
@@ -324,7 +379,7 @@ P1 센터 수락 전에는 `PATCH /found-items/{itemId}/registration`으로 인�
   "id": "900",
   "status": "OPEN",
   "effectiveSearchRadiusMeters": 1000,
-  "radiusPolicyVersion": "2026-08-23",
+  "radiusPolicyVersion": "p0-radius-v1",
   "centerGuidance": [{ "id": "20", "name": "캠퍼스 분실물 센터", "contactPhone": "02-000-0000", "distanceMeters": 210 }],
   "candidatesStale": false
 }
@@ -361,7 +416,7 @@ P1 센터 수락 전에는 `PATCH /found-items/{itemId}/registration`으로 인�
 **응답 payload — 200 OK**
 
 ```json
-{ "id": "900", "status": "OPEN", "effectiveSearchRadiusMeters": 1000, "radiusPolicyVersion": "2026-08-23", "centerGuidance": [{ "id": "20", "name": "캠퍼스 분실물 센터", "contactPhone": "02-000-0000" }], "candidatesStale": false }
+{ "id": "900", "status": "OPEN", "effectiveSearchRadiusMeters": 1000, "radiusPolicyVersion": "p0-radius-v1", "centerGuidance": [{ "id": "20", "name": "캠퍼스 분실물 센터", "contactPhone": "02-000-0000", "distanceMeters": 210.0 }], "candidatesStale": false }
 ```
 
 #### update-lost-report
@@ -395,8 +450,10 @@ P1 센터 수락 전에는 `PATCH /found-items/{itemId}/registration`으로 인�
 **응답 payload — 200 OK**
 
 ```json
-{ "lastMatchedAt": "2026-08-23T09:30:00Z", "candidatesStale": false, "data": [{ "candidateId": "810", "rank": 1, "score": 82.4 }] }
+{ "lastMatchedAt": "2026-08-23T09:30:00Z", "candidatesStale": false, "data": [{ "candidateId": "810", "rank": 1, "score": 82.40 }] }
 ```
+
+반경은 인접 핀 거리 중앙값 `m`에 대해 `clamp(500, 3000, 1000 + 0.10 × m)`를 계산하고 최종 미터만 `HALF_UP` 정수 반올림한다. 점수는 위치 0.35, 시간 0.20, 분류 0.20, 색상 0.15, 공개 설명 0.10의 가중합에 100을 곱하며 중간 반올림 없이 최종값만 소수 둘째 자리 `HALF_UP`으로 반올림한다. 시간창 기본값은 `PT24H`이며 누락 특징은 0점이고 가중치를 재분배하지 않는다. `ACTIVE`이면서 `expiredAt`이 현재보다 뒤인 항목만 후보이며, 점수 내림차순·습득물 ID 오름차순으로 최대 5개다.
 
 #### close-lost-report
 > POST `/lost-reports/{reportId}:close`
@@ -631,3 +688,13 @@ P1 센터 수락 전에는 `PATCH /found-items/{itemId}/registration`으로 인�
 - 실제 결제·현물 교환·익명 연락 중계·비센터 보관 위치 공개 경로는 없다.
 - P0 후보에는 상세 정보가 없고, P1 상세 열람은 신고당 한 번만 차감된다.
 - 모든 신규 schema는 기존 Flyway 이력 뒤 새 migration으로 추가한다.
+
+## 8. 폐기된 P0 경로
+
+아래 이전 경로는 호환 별칭이 아니며 `404`를 반환한다. 새 클라이언트는 호출하지 않는다.
+
+| Method | 폐기 경로 | 대체 경로 |
+|---|---|---|
+| POST | `/found-items` | `POST /found-items/drafts` 후 등록 확정 |
+| GET | `/nearby-lost-centers` | `GET /lost-centers/nearby` |
+| POST/GET | `/found-items/{itemId}/images` | `PUT/GET /found-items/{itemId}/image` |

@@ -73,9 +73,36 @@ class VisionJobIntegrationTest {
     @BeforeEach
     void reset() {
         entityManager.clear();
+        jdbc.update("DELETE FROM match_candidates");
+        jdbc.update("DELETE FROM report_waypoints");
+        jdbc.update("DELETE FROM lost_reports");
         jdbc.update("DELETE FROM found_item_vision_jobs");
         provider.reset();
         storage.reset();
+    }
+
+    @Test
+    void readyResultMarksReportsStaleOnlyWhenSelectableAiFeaturesChange() {
+        JobFixture changed = job();
+        long changedReport = report(false);
+        provider.enqueue(walletResult());
+
+        assertThat(worker.processNext()).isTrue();
+
+        assertThat(stale(changedReport)).isTrue();
+
+        JobFixture finderOwned = job();
+        featureRepository.saveAllAndFlush(List.of(
+                new ItemFeature(finderOwned.itemId(), ItemFeatureKind.COLOR, "BLUE", (short) 1,
+                        ItemFeatureSource.FINDER, ItemFeatureVisibility.CANDIDATE_VIEW, null),
+                new ItemFeature(finderOwned.itemId(), ItemFeatureKind.PUBLIC_DESCRIPTION, "finder text", (short) 1,
+                        ItemFeatureSource.FINDER, ItemFeatureVisibility.CANDIDATE_VIEW, null)));
+        long finderReport = report(false);
+        provider.enqueue(walletResult());
+
+        assertThat(worker.processNext()).isTrue();
+
+        assertThat(stale(finderReport)).isFalse();
     }
 
     @Test
@@ -357,6 +384,26 @@ class VisionJobIntegrationTest {
         storage.put(key, IMAGE_BYTES, "image/png", operationId);
         makeDue(job.getId());
         return new JobFixture(item.getId(), image.getId(), job.getId());
+    }
+
+    private long report(boolean stale) {
+        User reporter = userRepository.saveAndFlush(new User(
+                "report-" + UUID.randomUUID() + "@example.test", HASH, "Reporter", UserRole.USER));
+        return jdbc.queryForObject("""
+                INSERT INTO lost_reports
+                    (reporter_id, category, lost_at_from, lost_at_to, description, search_radius,
+                     effective_search_radius_meters, radius_policy_version, center_guidance,
+                     candidates_stale, matching_policy_version, status, expired_at, created_at, updated_at)
+                VALUES (?, 'WALLET', clock_timestamp() - INTERVAL '1 day', clock_timestamp(), 'wallet',
+                        1000, 1000, 'p0-radius-v1', '[]', ?, 'matching-v1', 'OPEN',
+                        clock_timestamp() + INTERVAL '14 days', clock_timestamp(), clock_timestamp())
+                RETURNING id
+                """, Long.class, reporter.getId(), stale);
+    }
+
+    private boolean stale(long reportId) {
+        return jdbc.queryForObject("SELECT candidates_stale FROM lost_reports WHERE id = ?",
+                Boolean.class, reportId);
     }
 
     private VisionProvider.VisionResult walletResult() {
