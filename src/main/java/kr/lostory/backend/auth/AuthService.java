@@ -1,9 +1,11 @@
 package kr.lostory.backend.auth;
 
 import java.util.Locale;
+import java.util.UUID;
 
 import kr.lostory.backend.common.exception.ErrorCode;
 import kr.lostory.backend.common.exception.LostoryException;
+import kr.lostory.backend.point.domain.PointService;
 import kr.lostory.backend.user.api.UserResponse;
 import kr.lostory.backend.user.domain.User;
 import kr.lostory.backend.user.domain.UserStatus;
@@ -21,6 +23,7 @@ public class AuthService {
 	private final UserRepository userRepository;
 	private final PasswordEncoder passwordEncoder;
 	private final JwtTokenService tokenService;
+	private final PointService pointService;
 
 	@Transactional
 	public UserResponse signup(SignupRequest request) {
@@ -28,13 +31,16 @@ public class AuthService {
 		if (userRepository.existsByEmail(email)) {
 			throw new LostoryException(ErrorCode.DUPLICATE_EMAIL);
 		}
+		User user;
 		try {
-			return UserResponse.from(userRepository.saveAndFlush(
+			user = userRepository.saveAndFlush(
 					new User(email, passwordEncoder.encode(request.password()), request.displayName())
-			));
+			);
 		} catch (DataIntegrityViolationException exception) {
 			throw new LostoryException(ErrorCode.DUPLICATE_EMAIL);
 		}
+		pointService.grantSignup(user.getId(), UUID.randomUUID());
+		return UserResponse.from(user);
 	}
 
 	@Transactional(readOnly = true)

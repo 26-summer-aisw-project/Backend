@@ -37,6 +37,13 @@ public class PointAccount {
 		this.updatedAt = this.createdAt;
 	}
 
+	public void apply(PointLedger ledger) {
+		if (!userId.equals(ledger.getUserId())) {
+			throw new IllegalArgumentException("ledger user must match point account user");
+		}
+		balance += ledger.getAmount();
+	}
+
 	@PreUpdate
 	void updateTimestamp() {
 		updatedAt = Instant.now();
