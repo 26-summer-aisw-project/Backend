@@ -20,7 +20,7 @@ public class OpenApiConfig {
 			.info(new Info()
 				.title("Lostory REST API")
 				.version("v1")
-				.description("Lostory 백엔드 REST API 명세"));
+				.description("Lostory 백엔드 REST API 명세. docs/API_SPEC.md의 현재 P0 계약만 제공합니다."));
 	}
 
 }

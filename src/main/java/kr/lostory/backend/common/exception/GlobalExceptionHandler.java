@@ -61,7 +61,7 @@ public class GlobalExceptionHandler {
             HttpServletRequest request
     ) {
         if (request.getMethod().equals("POST")
-                && request.getRequestURI().matches("/api/v1/found-items/[0-9]+/image")) {
+                && request.getRequestURI().equals("/api/v1/found-items")) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(new ErrorResponse(ErrorCode.RESOURCE_NOT_FOUND));
         }
         return ResponseEntity.status(HttpStatus.METHOD_NOT_ALLOWED).body(new ErrorResponse(ErrorCode.INVALID_REQUEST));

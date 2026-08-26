@@ -1,5 +1,8 @@
 package kr.lostory.backend.lostreport.presentation;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import kr.lostory.backend.common.exception.ErrorCode;
 import kr.lostory.backend.common.exception.LostoryException;
@@ -22,6 +25,8 @@ import tools.jackson.databind.JsonNode;
 
 @RestController
 @RequestMapping("/api/v1/lost-reports")
+@Tag(name = "분실 신고", description = "분실 신고와 점수 후보 조회 API")
+@SecurityRequirement(name = "bearerAuth")
 public class LostReportController {
 
 	private final LostReportApiService service;
@@ -33,6 +38,7 @@ public class LostReportController {
 	}
 
 	@GetMapping("/{reportId}/candidates")
+	@Operation(summary = "점수 후보 조회", description = "열린 분실 신고의 매칭 후보를 점수와 순위만 포함해 조회합니다.")
 	public LostReportCandidateResponse candidates(
 			@PathVariable Long reportId,
 			@AuthenticationPrincipal Jwt jwt
@@ -42,6 +48,7 @@ public class LostReportController {
 
 	@PostMapping
 	@ResponseStatus(HttpStatus.CREATED)
+	@Operation(summary = "분실 신고 생성", description = "분실 정보와 이동 경로를 저장하고 센터 안내와 최초 점수 후보를 생성합니다.")
 	public LostReportResponses.Create create(
 			@AuthenticationPrincipal Jwt jwt,
 			@Valid @RequestBody CreateLostReportRequest request
@@ -50,6 +57,7 @@ public class LostReportController {
 	}
 
 	@GetMapping
+	@Operation(summary = "내 분실 신고 목록 조회", description = "현재 사용자의 분실 신고를 상태 필터와 페이지 조건으로 조회합니다.")
 	public LostReportResponses.ListResult list(
 			@AuthenticationPrincipal Jwt jwt,
 			@RequestParam(defaultValue = "1") int page,
@@ -63,6 +71,7 @@ public class LostReportController {
 	}
 
 	@GetMapping("/{reportId}")
+	@Operation(summary = "분실 신고 상세 조회", description = "신고 소유자가 저장된 경로, 검색 반경과 센터 안내를 조회합니다.")
 	public LostReportResponses.Detail detail(
 			@PathVariable Long reportId,
 			@AuthenticationPrincipal Jwt jwt
@@ -71,6 +80,7 @@ public class LostReportController {
 	}
 
 	@PatchMapping("/{reportId}")
+	@Operation(summary = "분실 신고 수정", description = "신고의 매칭 입력을 수정하고 필요한 반경, 센터 안내와 후보를 다시 계산합니다.")
 	public LostReportResponses.Update update(
 			@PathVariable Long reportId,
 			@AuthenticationPrincipal Jwt jwt,
@@ -80,6 +90,7 @@ public class LostReportController {
 	}
 
 	@PostMapping("/{reportId}:close")
+	@Operation(summary = "분실 신고 종료", description = "신고 소유자가 빈 JSON 객체로 열린 신고를 종료합니다.")
 	public LostReportResponses.Close close(
 			@PathVariable Long reportId,
 			@AuthenticationPrincipal Jwt jwt,

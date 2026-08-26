@@ -11,6 +11,7 @@ import javax.crypto.spec.SecretKeySpec;
 import com.nimbusds.jose.jwk.source.ImmutableSecret;
 import com.nimbusds.jose.proc.SecurityContext;
 import jakarta.servlet.http.HttpServletResponse;
+import jakarta.servlet.http.HttpServletRequest;
 import kr.lostory.backend.common.exception.ErrorCode;
 import kr.lostory.backend.common.response.ErrorResponse;
 import org.springframework.boot.health.actuate.endpoint.HealthEndpoint;
@@ -120,6 +121,7 @@ public class SecurityConfig {
 			.sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
 			.authorizeHttpRequests((requests) -> requests
 				.requestMatchers(EndpointRequest.to(HealthEndpoint.class)).permitAll()
+				.requestMatchers(SecurityConfig::isRetiredRoute).permitAll()
 				.requestMatchers("/api/v1/admin/**").hasRole("ADMIN")
 				.requestMatchers(
 					"/api/v1/auth/signup",
@@ -142,6 +144,14 @@ public class SecurityConfig {
 			.formLogin(AbstractHttpConfigurer::disable)
 			.logout(AbstractHttpConfigurer::disable);
 		return http.build();
+	}
+
+	private static boolean isRetiredRoute(HttpServletRequest request) {
+		String method = request.getMethod();
+		String path = request.getRequestURI();
+		return method.equals("POST") && path.equals("/api/v1/found-items")
+			|| (method.equals("GET") || method.equals("POST"))
+				&& path.matches("/api/v1/found-items/[0-9]+/images");
 	}
 
 	private static void writeError(HttpServletResponse response, ObjectMapper objectMapper, ErrorCode errorCode)
