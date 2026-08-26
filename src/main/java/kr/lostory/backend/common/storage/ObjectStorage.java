@@ -1,5 +1,6 @@
 package kr.lostory.backend.common.storage;
 
+import java.net.URI;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -11,6 +12,8 @@ public interface ObjectStorage {
 
     StoredObject get(String key);
 
+    PresignedGet presignGet(String key, Instant expiresAt);
+
     Optional<ObjectMetadata> head(String key);
 
     void delete(String key);
@@ -18,6 +21,9 @@ public interface ObjectStorage {
     List<ObjectMetadata> list(String prefix);
 
     record StoredObject(byte[] bytes, String contentType) {
+    }
+
+    record PresignedGet(URI url, Instant expiresAt) {
     }
 
     record ObjectMetadata(

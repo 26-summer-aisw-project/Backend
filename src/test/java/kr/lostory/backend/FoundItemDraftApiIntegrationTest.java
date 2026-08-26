@@ -418,6 +418,11 @@ class FoundItemDraftApiIntegrationTest {
         }
 
         @Override
+        public PresignedGet presignGet(String key, Instant expiresAt) {
+            return new PresignedGet(java.net.URI.create("https://signed.example.test/private-image"), expiresAt);
+        }
+
+        @Override
         public Optional<ObjectMetadata> head(String key) {
             Stored stored = objects.get(key);
             return stored == null ? Optional.empty() : Optional.of(metadata(key, stored));

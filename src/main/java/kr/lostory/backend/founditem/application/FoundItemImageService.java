@@ -16,6 +16,8 @@ import kr.lostory.backend.founditem.domain.FoundItemImageRepository;
 import kr.lostory.backend.founditem.domain.FoundItemRepository;
 import kr.lostory.backend.founditem.presentation.FoundItemImageResponse;
 import kr.lostory.backend.config.FoundItemProperties;
+import kr.lostory.backend.config.ObjectStorageProperties;
+import kr.lostory.backend.founditem.presentation.FoundItemSignedUrlResponse;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -32,6 +34,7 @@ public class FoundItemImageService {
     private final VisionDailyAdmissionService admissionService;
     private final ObjectStorage storage;
     private final FoundItemProperties properties;
+    private final ObjectStorageProperties storageProperties;
     private final Clock clock;
 
     public FoundItemImageService(
@@ -41,6 +44,7 @@ public class FoundItemImageService {
             VisionDailyAdmissionService admissionService,
             ObjectStorage storage,
             FoundItemProperties properties,
+            ObjectStorageProperties storageProperties,
             Clock clock
     ) {
         this.foundItemRepository = foundItemRepository;
@@ -49,6 +53,7 @@ public class FoundItemImageService {
         this.admissionService = admissionService;
         this.storage = storage;
         this.properties = properties;
+        this.storageProperties = storageProperties;
         this.clock = clock;
     }
 
@@ -113,7 +118,7 @@ public class FoundItemImageService {
     }
 
     @Transactional(readOnly = true)
-    public ObjectStorage.StoredObject getCurrent(Long foundItemId, Long requesterId, boolean admin) {
+    public FoundItemSignedUrlResponse getCurrent(Long foundItemId, Long requesterId, boolean admin) {
         FoundItem item = foundItemRepository.findById(foundItemId)
                 .orElseThrow(() -> new LostoryException(ErrorCode.RESOURCE_NOT_FOUND));
         if (!admin && !item.getFinderId().equals(requesterId)) {
@@ -121,11 +126,17 @@ public class FoundItemImageService {
         }
         FoundItemImage image = imageRepository.findByFoundItemIdAndCurrentTrue(foundItemId)
                 .orElseThrow(() -> unavailable(item));
-        if (storage.head(image.getObjectKey()).isEmpty()) {
+        String objectKey = image.getObjectKey();
+        if (objectKey == null || storage.head(objectKey).isEmpty()) {
             throw unavailable(item);
         }
+        Instant expiresAt = clock.instant().plus(storageProperties.readUrlTtl());
         try {
-            return storage.get(image.getObjectKey());
+            ObjectStorage.PresignedGet signed = storage.presignGet(objectKey, expiresAt);
+            if (!signed.expiresAt().equals(expiresAt)) {
+                throw unavailable(item);
+            }
+            return new FoundItemSignedUrlResponse(signed.url(), signed.expiresAt());
         } catch (ObjectStorageException exception) {
             throw unavailable(item);
         }

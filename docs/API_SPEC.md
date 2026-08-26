@@ -2,7 +2,7 @@
 
 **상태:** P0 구현 동기화 · 2026-08-25
 **Base path:** `/api/v1`
-**전송 형식:** HTTPS JSON. 사진 생성·교체는 `multipart/form-data`, 사진 조회는 원본 바이트를 사용한다.
+**전송 형식:** HTTPS JSON. 사진 생성·교체는 `multipart/form-data`, 사진 조회는 비공개 객체의 5분 유효 서명 URL JSON을 사용한다.
 
 이 문서는 [MVP 구현 기준](./MVP_IMPLEMENTATION_PLAN.md)의 HTTP 계약이다. 이전 OpenAPI YAML과 이전 payload 초안은 이 문서와 다르면 사용하지 않는다.
 
@@ -205,7 +205,7 @@ P0에는 모든 FoundItem 필드를 한 번에 반환하는 공통 응답이 없
 #### get-found-item-image
 > GET `/found-items/{itemId}/image`
 
-- 소유자 또는 ADMIN이 현재 사진 원본을 조회한다. 객체 키나 서명 URL은 반환하지 않는다.
+- 소유자 또는 ADMIN이 현재 비공개 사진의 5분 유효 GET 서명 URL을 조회한다. 객체 키·저장 경로·저장 파일명은 반환하지 않으며 응답은 캐시하지 않는다.
 
 **요청 payload**
 
@@ -215,9 +215,11 @@ P0에는 모든 FoundItem 필드를 한 번에 반환하는 공통 응답이 없
 
 **응답 payload — 200 OK**
 
-| Header | Body |
-|---|---|
-| 업로드한 `Content-Type` | 이미지 바이트 |
+Header: `Cache-Control: no-store`
+
+```json
+{ "url": "https://signed.example/…", "expiresAt": "2026-08-23T08:45:00Z" }
+```
 
 #### replace-found-item-image
 > PUT `/found-items/{itemId}/image`

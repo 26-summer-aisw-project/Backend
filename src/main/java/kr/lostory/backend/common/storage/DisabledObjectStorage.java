@@ -1,6 +1,7 @@
 package kr.lostory.backend.common.storage;
 
 import java.util.List;
+import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -21,6 +22,11 @@ public class DisabledObjectStorage implements ObjectStorage {
 
     @Override
     public StoredObject get(String key) {
+        throw disabled();
+    }
+
+    @Override
+    public PresignedGet presignGet(String key, Instant expiresAt) {
         throw disabled();
     }
 

@@ -12,6 +12,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -23,6 +24,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import kr.lostory.backend.auth.JwtTokenService;
 import kr.lostory.backend.common.exception.LostoryException;
 import kr.lostory.backend.common.storage.ObjectStorage;
@@ -51,6 +53,7 @@ import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.context.annotation.Primary;
+import org.springframework.core.env.Environment;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.context.ActiveProfiles;
@@ -58,14 +61,20 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.scheduling.annotation.EnableScheduling;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ObjectNode;
 
 @ActiveProfiles("test")
 @Import({PostgresTestContainerConfig.class, FoundItemObjectStorageIntegrationTest.StorageTestConfig.class})
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(
+        webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+        properties = "object-storage.deletion-worker-initial-delay=PT1H"
+)
 class FoundItemObjectStorageIntegrationTest {
 
     private static final String HASH = "$2a$10$7EqJtq98hPqEX7fNZaFWoO5n33S5U9P4XQxG1VVDzI7kVxwZKXgOe";
     private static final byte[] PNG = new byte[]{(byte) 0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1};
+    private static final Instant NOW = Instant.now();
+    private static final Instant SIGNED_EXPIRY = NOW.plus(Duration.ofMinutes(5));
 
     @LocalServerPort int port;
     @Autowired JwtTokenService tokenService;
@@ -80,6 +89,7 @@ class FoundItemObjectStorageIntegrationTest {
     @Autowired ObjectStorageProperties objectStorageProperties;
     @Autowired InMemoryObjectStorage storage;
     @Autowired JdbcTemplate jdbc;
+    @Autowired Environment environment;
 
     @BeforeEach
     void resetStorage() {
@@ -105,13 +115,20 @@ class FoundItemObjectStorageIntegrationTest {
     }
 
     @Test
-    void authenticatedOwnerAndAdminStreamUploadedBytesWhileForeignUserSees404() throws Exception {
+    void manualDeletionWorkerFixtureDefersAutomaticSchedulingBeyondSuite() {
+        assertThat(environment.getProperty("object-storage.deletion-worker-initial-delay"))
+                .isEqualTo("PT1H");
+    }
+
+    @Test
+    void authorizedImageReadReturnsSignedJsonWithoutCachingOrPrivateMetadata() throws Exception {
         User owner = user(UserRole.USER);
         User admin = user(UserRole.ADMIN);
         User foreign = user(UserRole.USER);
         FoundItem item = item(owner);
 
         imageService.upload(item.getId(), owner.getId(), image("wallet.png", PNG));
+        String objectKey = storage.keys().getFirst();
         HttpResponse<byte[]> ownerGet = get(owner, item);
         HttpResponse<byte[]> adminGet = get(admin, item);
         HttpResponse<byte[]> foreignGet = get(foreign, item);
@@ -120,16 +137,74 @@ class FoundItemObjectStorageIntegrationTest {
                 .satisfies(key -> assertThat(key).matches("found-items/[0-9a-f-]{36}"));
         assertThat(storage.metadata().getFirst().uploadOperationId()).isNotNull();
         assertThat(ownerGet.statusCode()).isEqualTo(200);
-        assertThat(ownerGet.body()).isEqualTo(PNG);
-        assertThat(ownerGet.headers().firstValue("Content-Type")).contains("image/png");
+        assertThat(ownerGet.headers().firstValue("Content-Type")).contains("application/json");
+        assertThat(ownerGet.headers().firstValue("Cache-Control")).contains("no-store");
+        JsonNode ownerBody = new ObjectMapper().readTree(ownerGet.body());
+        assertThat(ownerBody.propertyNames()).containsExactlyInAnyOrder("url", "expiresAt");
+        assertThat(ownerBody.get("expiresAt").asString()).isEqualTo(SIGNED_EXPIRY.toString());
+        assertThat(ownerBody.toString()).doesNotContain(
+                "objectKey", "storagePath", "storedFilename", "imageBytes");
         assertThat(ownerGet.headers().firstValue("Content-Disposition")).isEmpty();
         assertThat(adminGet.statusCode()).isEqualTo(200);
-        assertThat(adminGet.body()).isEqualTo(PNG);
+        JsonNode adminBody = new ObjectMapper().readTree(adminGet.body());
+        assertThat(adminBody.propertyNames()).containsExactlyInAnyOrder("url", "expiresAt");
         assertThat(foreignGet.statusCode()).isEqualTo(404);
+        assertThat(storage.presignCalls()).isEqualTo(2);
+        assertThat(objectStorageProperties.readUrlTtl()).isEqualTo(Duration.ofMinutes(5));
+        assertThat(jdbc.queryForObject(
+                "SELECT object_key FROM found_item_images WHERE found_item_id = ? AND is_current",
+                String.class, item.getId())).isEqualTo(objectKey);
+        assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM audit_logs WHERE metadata_json::text LIKE '%signed.example%'",
+                Long.class)).isZero();
     }
 
     @Test
-    void publicImageReplacementPostReturnsCommon404WithoutReplacementOutboxWork() throws Exception {
+    void missingObjectPresignFailureAndExpiredResultUseEstablishedMediaErrors() throws Exception {
+        User owner = user(UserRole.USER);
+        FoundItem noMedia = item(owner);
+        FoundItem item = item(owner);
+        imageService.upload(item.getId(), owner.getId(), image("wallet.png", PNG));
+
+        HttpResponse<byte[]> missingMedia = get(owner, noMedia);
+        storage.clearObjects();
+        HttpResponse<byte[]> missingObject = get(owner, item);
+        storage.seedCurrentObject();
+        storage.failNextPresign();
+        HttpResponse<byte[]> presignFailure = get(owner, item);
+        storage.expireNextPresign();
+        HttpResponse<byte[]> expiredResult = get(owner, item);
+
+        for (HttpResponse<byte[]> response : List.of(missingMedia, missingObject, presignFailure, expiredResult)) {
+            assertThat(response.statusCode()).isEqualTo(404);
+            assertThat(new ObjectMapper().readTree(response.body()).get("code").asString()).isEqualTo("COMMON-004");
+        }
+    }
+
+    @Test
+    void legacyStorageMetadataRemainsPrivateAndUnavailable() throws Exception {
+        User owner = user(UserRole.USER);
+        FoundItem item = item(owner);
+        jdbc.update("""
+                INSERT INTO found_item_images
+                    (found_item_id, original_filename, stored_filename, legacy_storage_path,
+                     content_type, size_bytes, is_current, analysis_generation, created_at)
+                VALUES (?, 'legacy.png', 'legacy-stored.png', 'legacy/private/path',
+                        'image/png', 9, false, 0, NOW())
+                """, item.getId());
+
+        HttpResponse<byte[]> response = get(owner, item);
+
+        assertThat(response.statusCode()).isEqualTo(404);
+        assertThat(new ObjectMapper().readTree(response.body()).get("code").asString()).isEqualTo("COMMON-004");
+        assertThat(jdbc.queryForObject(
+                "SELECT legacy_storage_path FROM found_item_images WHERE found_item_id = ?",
+                String.class, item.getId())).isEqualTo("legacy/private/path");
+        assertThat(storage.presignCalls()).isZero();
+    }
+
+    @Test
+    void singularImagePostReturnsMethodNotAllowedWithoutReplacementOutboxWork() throws Exception {
         User owner = user(UserRole.USER);
         FoundItem item = item(owner);
         outboxRepository.deleteAll();
@@ -138,9 +213,9 @@ class FoundItemObjectStorageIntegrationTest {
                 owner, item, List.of(part("image", "wallet.png", "image/png", PNG)));
 
         JsonNode body = new ObjectMapper().readTree(response.body());
-        assertThat(response.statusCode()).isEqualTo(404);
+        assertThat(response.statusCode()).isEqualTo(405);
         assertThat(body.propertyNames()).containsExactlyInAnyOrder("code", "message");
-        assertThat(body.get("code").asString()).isEqualTo("COMMON-004");
+        assertThat(body.get("code").asString()).isEqualTo("COMMON-001");
         assertThat(storage.keys()).isEmpty();
         assertThat(imageRepository.countByFoundItemId(item.getId())).isZero();
         assertThat(visionJobRepository.countByFoundItemId(item.getId())).isZero();
@@ -257,6 +332,52 @@ class FoundItemObjectStorageIntegrationTest {
     }
 
     @Test
+    void curlMatrixProvesSignedOwnerAdminPrivacyAndMediaFailures() throws Exception {
+        User owner = user(UserRole.USER);
+        User admin = user(UserRole.ADMIN);
+        User foreign = user(UserRole.USER);
+        User manager = user(UserRole.CENTER_MANAGER);
+        FoundItem item = item(owner);
+        FoundItem missingMediaItem = item(owner);
+        imageService.upload(item.getId(), owner.getId(), image("wallet.png", PNG));
+
+        CurlResult ownerGet = curl(item.getId(), tokenService.issue(owner).value());
+        CurlResult adminGet = curl(item.getId(), tokenService.issue(admin).value());
+        CurlResult foreignGet = curl(item.getId(), tokenService.issue(foreign).value());
+        CurlResult managerGet = curl(item.getId(), tokenService.issue(manager).value());
+        CurlResult malformedItem = curl("not-a-number", tokenService.issue(owner).value());
+        CurlResult missingItem = curl(Long.MAX_VALUE, tokenService.issue(owner).value());
+        CurlResult missingMedia = curl(missingMediaItem.getId(), tokenService.issue(owner).value());
+        storage.clearObjects();
+        CurlResult missingObject = curl(item.getId(), tokenService.issue(owner).value());
+        storage.seedCurrentObject();
+        storage.failNextPresign();
+        CurlResult presignFailure = curl(item.getId(), tokenService.issue(owner).value());
+        storage.expireNextPresign();
+        CurlResult expiredResult = curl(item.getId(), tokenService.issue(owner).value());
+        storage.clearObjects();
+        jdbc.update("UPDATE found_items SET status = 'RETURNED' WHERE id = ?", item.getId());
+        CurlResult terminalMissing = curl(item.getId(), tokenService.issue(owner).value());
+
+        for (CurlResult response : List.of(ownerGet, adminGet)) {
+            assertThat(response.status()).isEqualTo(200);
+            assertThat(response.contentType()).contains("application/json");
+            assertThat(response.cacheControl()).isEqualTo("no-store");
+            assertThat(response.body().propertyNames()).containsExactlyInAnyOrder("url", "expiresAt");
+            assertThat(response.body().get("expiresAt").asString()).isEqualTo(SIGNED_EXPIRY.toString());
+        }
+        assertCurlError(foreignGet, 404, "COMMON-004");
+        assertCurlError(managerGet, 403, "COMMON-003");
+        assertCurlError(malformedItem, 400, "COMMON-001");
+        assertCurlError(missingItem, 404, "COMMON-004");
+        assertCurlError(missingMedia, 404, "COMMON-004");
+        assertCurlError(missingObject, 404, "COMMON-004");
+        assertCurlError(presignFailure, 404, "COMMON-004");
+        assertCurlError(expiredResult, 404, "COMMON-004");
+        assertCurlError(terminalMissing, 410, "MEDIA_NOT_AVAILABLE");
+    }
+
+    @Test
     void deleteBeforeDatabaseAckRetriesAsDoneWhenObjectAlreadyMissing() {
         outboxRepository.deleteAll();
         User owner = user(UserRole.USER);
@@ -265,10 +386,16 @@ class FoundItemObjectStorageIntegrationTest {
         String oldKey = storage.keys().getFirst();
         imageService.upload(item.getId(), owner.getId(), image("two.png", PNG));
         storage.delete(oldKey);
+        Map<String, Object> pending = jdbc.queryForMap("""
+                SELECT status, next_attempt_at <= clock_timestamp() AS eligible
+                FROM object_deletion_outbox
+                """);
 
         boolean processed = deletionWorker.processNext();
         boolean repeated = deletionWorker.processNext();
 
+        assertThat(pending.get("status")).isEqualTo("PENDING");
+        assertThat(pending.get("eligible")).isEqualTo(true);
         assertThat(processed).isTrue();
         assertThat(repeated).isFalse();
         assertThat(outboxRepository.countByStatus("DONE")).isOne();
@@ -359,11 +486,74 @@ class FoundItemObjectStorageIntegrationTest {
         return URI.create("http://localhost:" + port + "/api/v1/found-items/" + item.getId() + "/image");
     }
 
+    private CurlResult curl(long itemId, String token) throws Exception {
+        return curl(Long.toString(itemId), token);
+    }
+
+    private CurlResult curl(String itemId, String token) throws Exception {
+        Process process = new ProcessBuilder(
+                "curl", "-sS", "-i", "--max-time", "15",
+                "-H", "Authorization: Bearer " + token,
+                "http://127.0.0.1:" + port + "/api/v1/found-items/" + itemId + "/image")
+                .redirectErrorStream(true)
+                .start();
+        String response;
+        try {
+            response = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+            if (!process.waitFor(5, java.util.concurrent.TimeUnit.SECONDS)) {
+                throw new IllegalStateException("curl exceeded cleanup deadline");
+            }
+        } finally {
+            if (process.isAlive()) {
+                process.destroyForcibly();
+                process.waitFor(5, java.util.concurrent.TimeUnit.SECONDS);
+            }
+        }
+        assertThat(process.exitValue()).isZero();
+        int bodyStart = response.lastIndexOf("\r\n\r\n");
+        assertThat(bodyStart).isGreaterThan(0);
+        String headers = response.substring(0, bodyStart);
+        String statusLine = headers.substring(0, headers.indexOf("\r\n"));
+        int status = Integer.parseInt(statusLine.split(" ")[1]);
+        String contentType = header(headers, "content-type");
+        String cacheControl = header(headers, "cache-control");
+        JsonNode body = new ObjectMapper().readTree(response.substring(bodyStart + 4));
+        JsonNode redactedBody = new ObjectMapper().readTree(body.toString());
+        if (redactedBody instanceof ObjectNode objectBody && objectBody.has("url")) {
+            objectBody.put("url", "<REDACTED_SIGNED_URL>");
+        }
+        System.out.println("CURL_RAW_REDACTED\n"
+                + statusLine + "\r\n"
+                + "Content-Type: " + contentType + "\r\n"
+                + "Cache-Control: " + cacheControl + "\r\n"
+                + "\r\n"
+                + redactedBody);
+        return new CurlResult(status, contentType, cacheControl, body);
+    }
+
+    private String header(String headers, String name) {
+        return headers.lines()
+                .filter(line -> line.toLowerCase(java.util.Locale.ROOT).startsWith(name + ":"))
+                .map(line -> line.substring(line.indexOf(':') + 1).trim())
+                .findFirst()
+                .orElse("");
+    }
+
+    private void assertCurlError(CurlResult response, int status, String code) {
+        assertThat(response.status()).isEqualTo(status);
+        assertThat(response.contentType()).contains("application/json");
+        assertThat(response.body().propertyNames()).containsExactlyInAnyOrder("code", "message");
+        assertThat(response.body().get("code").asString()).isEqualTo(code);
+    }
+
     private Part part(String name, String filename, String contentType, byte[] bytes) {
         return new Part(name, filename, contentType, bytes);
     }
 
     private record Part(String name, String filename, String contentType, byte[] bytes) {
+    }
+
+    private record CurlResult(int status, String contentType, String cacheControl, JsonNode body) {
     }
 
     @TestConfiguration
@@ -373,11 +563,21 @@ class FoundItemObjectStorageIntegrationTest {
         InMemoryObjectStorage inMemoryObjectStorage() {
             return new InMemoryObjectStorage();
         }
+
+        @Bean
+        @Primary
+        Clock task4Clock() {
+            return Clock.fixed(NOW, ZoneOffset.UTC);
+        }
     }
 
     static class InMemoryObjectStorage implements ObjectStorage {
         private final Map<String, Entry> objects = new ConcurrentHashMap<>();
         private final AtomicBoolean failPut = new AtomicBoolean();
+        private final AtomicBoolean failPresign = new AtomicBoolean();
+        private final AtomicBoolean expirePresign = new AtomicBoolean();
+        private final AtomicInteger presignCalls = new AtomicInteger();
+        private String lastKey;
 
         @Override
         public void put(String key, byte[] bytes, String contentType, UUID uploadOperationId) {
@@ -385,6 +585,7 @@ class FoundItemObjectStorageIntegrationTest {
                 throw new ObjectStorageException("forced put failure");
             }
             seed(key, bytes, contentType, uploadOperationId, Instant.now());
+            lastKey = key;
         }
 
         @Override
@@ -394,6 +595,20 @@ class FoundItemObjectStorageIntegrationTest {
                 throw new ObjectStorageException("missing");
             }
             return new StoredObject(entry.bytes().clone(), entry.metadata().contentType());
+        }
+
+        @Override
+        public PresignedGet presignGet(String key, Instant expiresAt) {
+            if (!objects.containsKey(key)) {
+                throw new ObjectStorageException("missing");
+            }
+            presignCalls.incrementAndGet();
+            if (failPresign.compareAndSet(true, false)) {
+                throw new ObjectStorageException("forced presign failure");
+            }
+            Instant resultExpiry = expirePresign.compareAndSet(true, false)
+                    ? expiresAt.minus(Duration.ofMinutes(10)) : expiresAt;
+            return new PresignedGet(URI.create("https://signed.example.test/private-image"), resultExpiry);
         }
 
         @Override
@@ -421,6 +636,29 @@ class FoundItemObjectStorageIntegrationTest {
             failPut.set(true);
         }
 
+        void failNextPresign() {
+            failPresign.set(true);
+        }
+
+        void expireNextPresign() {
+            expirePresign.set(true);
+        }
+
+        int presignCalls() {
+            return presignCalls.get();
+        }
+
+        void clearObjects() {
+            objects.clear();
+        }
+
+        void seedCurrentObject() {
+            if (lastKey == null) {
+                throw new IllegalStateException("no current key");
+            }
+            seed(lastKey, PNG, "image/png", UUID.randomUUID(), NOW);
+        }
+
         void age(String key, Instant createdAt) {
             objects.computeIfPresent(key, (ignored, entry) -> new Entry(entry.bytes(),
                     new ObjectMetadata(key, entry.metadata().contentType(), entry.metadata().sizeBytes(),
@@ -438,6 +676,10 @@ class FoundItemObjectStorageIntegrationTest {
         void clear() {
             objects.clear();
             failPut.set(false);
+            failPresign.set(false);
+            expirePresign.set(false);
+            presignCalls.set(0);
+            lastKey = null;
         }
 
         private record Entry(byte[] bytes, ObjectMetadata metadata) {
