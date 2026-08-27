@@ -157,6 +157,32 @@ class PointFoundationMigrationIntegrationTest {
 	}
 
 	@Test
+	void v30PreservesEveryV24ValidExpiredPendingCenterHandover() {
+		// Given
+		migrateCleanTo("24");
+		insertV24ExpiredPendingCenterHandoverFixture();
+
+		// When
+		migrateLatest();
+
+		// Then
+		assertThat(jdbc.queryForObject(
+			"SELECT count(*) FROM flyway_schema_history WHERE version IN ('30', '32') AND success",
+			Integer.class
+		)).isEqualTo(2);
+		assertThat(jdbc.queryForObject("""
+			SELECT status = 'EXPIRED'
+				AND storage_method = 'HANDED_TO_CENTER'
+				AND center_id IS NOT NULL
+				AND handover_status = 'NONE'
+				AND handed_at IS NULL
+			FROM found_items
+			WHERE name = 'v24 expired pending fixture'
+			""", Boolean.class)).isTrue();
+		System.out.println("POINT_V30_CONTINUITY_OBSERVABLE v24-valid-row=preserved versions=30,32-success");
+	}
+
+	@Test
 	void v32AcceptsExpiredPendingCenterHandoverWithoutFabricatingArtifacts() {
 		// Given
 		migrateToV26();
@@ -309,6 +335,12 @@ class PointFoundationMigrationIntegrationTest {
 		flyway.migrate();
 	}
 
+	private static void migrateCleanTo(String target) {
+		Flyway flyway = Flyway.configure().dataSource(dataSource).cleanDisabled(false).target(target).load();
+		flyway.clean();
+		flyway.migrate();
+	}
+
 	private static void migrateTo(String target) {
 		Flyway.configure().dataSource(dataSource).target(target).load().migrate();
 	}
@@ -420,6 +452,33 @@ class PointFoundationMigrationIntegrationTest {
 				(SELECT id FROM users WHERE email = 'v32-fixture@example.test'), 'v32 expired pending fixture',
 				'WALLET', 'fixture', '2026-08-02T00:00:00Z', 'HANDED_TO_CENTER',
 				(SELECT id FROM lost_centers WHERE source_key = 'fixture:center-v32'), NULL, 'NONE', NULL,
+				'EXPIRED', 'FAILED', 0, '2026-08-02T00:00:00Z', '2026-08-03T00:00:00Z',
+				'2026-08-02T12:00:00Z'
+			);
+			""");
+	}
+
+	private static void insertV24ExpiredPendingCenterHandoverFixture() {
+		jdbc.execute("""
+			INSERT INTO users (email, password_hash, display_name, status, role, created_at, updated_at)
+			VALUES ('v24-fixture@example.test', 'hash', 'V24 Fixture', 'ACTIVE', 'USER',
+				'2026-08-01T00:00:00Z', '2026-08-01T00:00:00Z');
+			INSERT INTO lost_centers (
+				source_key, name, address, location, contact_phone, operating_hours, is_active,
+				verification_status, is_csv_managed, created_at, updated_at
+			) VALUES (
+				'fixture:center-v24', 'V24 Fixture Center', 'Fixture Address',
+				ST_SetSRID(ST_MakePoint(126.95, 37.49), 4326)::geography, '000-redacted', 'fixture-hours',
+				true, 'official_verified', false, '2026-08-01T00:00:00Z', '2026-08-01T00:00:00Z'
+			);
+			INSERT INTO found_items (
+				finder_id, name, category, description, found_at, storage_method, center_id,
+				legacy_handover_place_name, handover_status, handed_at, status, vision_status,
+				analysis_generation, created_at, updated_at, expired_at
+			) VALUES (
+				(SELECT id FROM users WHERE email = 'v24-fixture@example.test'), 'v24 expired pending fixture',
+				'WALLET', 'fixture', '2026-08-02T00:00:00Z', 'HANDED_TO_CENTER',
+				(SELECT id FROM lost_centers WHERE source_key = 'fixture:center-v24'), NULL, 'NONE', NULL,
 				'EXPIRED', 'FAILED', 0, '2026-08-02T00:00:00Z', '2026-08-03T00:00:00Z',
 				'2026-08-02T12:00:00Z'
 			);

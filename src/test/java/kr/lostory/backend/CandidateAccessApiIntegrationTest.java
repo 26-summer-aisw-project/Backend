@@ -9,6 +9,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.util.UUID;
 import java.time.Instant;
 import java.util.Optional;
@@ -144,6 +145,78 @@ class CandidateAccessApiIntegrationTest {
 		responses.error(post(closedId, owner, UUID.randomUUID().toString()), 409, "REPORT_NOT_OPEN");
 		assertThat(count("point_ledger", reportId)).isZero();
 		assertThat(count("point_ledger", closedId)).isZero();
+	}
+
+	@Test
+	void curlChannelShowsCanonicalSuccessThenExactCrossScopeConflict() throws Exception {
+		// Given
+		User firstUser = user(10);
+		User secondUser = user(10);
+		long firstReport = report(firstUser.getId());
+		long secondReport = report(secondUser.getId());
+		UUID reusedKey = UUID.randomUUID();
+
+		// When
+		CurlResponse success = curlPost(firstReport, firstUser, reusedKey);
+		CurlResponse conflict = curlPost(secondReport, secondUser, reusedKey);
+
+		// Then
+		assertThat(success.status()).isEqualTo(200);
+		assertThat(conflict.status()).isEqualTo(409);
+		assertThat(json.readTree(conflict.body()).get("code").asString()).isEqualTo("POINT-001");
+		assertThat(jdbc.queryForObject(
+			"SELECT count(*) FROM point_ledger WHERE idempotency_key = ?", Integer.class, reusedKey
+		)).isOne();
+		assertThat(jdbc.queryForObject(
+			"SELECT count(*) FROM candidate_access_idempotency_receipts WHERE idempotency_key = ?",
+			Integer.class, reusedKey
+		)).isOne();
+		System.out.println("CURL_REDACTED_OBSERVABLE command=curl -i --max-time 15 "
+			+ "-H 'Authorization: Bearer <redacted>' -H 'Idempotency-Key: <test UUID>' -X POST "
+			+ "http://127.0.0.1:<random-port>/api/v1/lost-reports/<test-report-id>/candidate-accesses "
+			+ "statuses=200,409 loser=POINT-001 debit=1 receipt=1");
+	}
+
+	@Test
+	void concurrentCrossScopeReuseYieldsOneSuccessAndOnePointConflict() throws Exception {
+		// Given
+		User firstUser = user(10);
+		User secondUser = user(10);
+		long firstReport = report(firstUser.getId());
+		long secondReport = report(secondUser.getId());
+		UUID reusedKey = UUID.randomUUID();
+		CyclicBarrier admission = new CyclicBarrier(3);
+		var executor = Executors.newVirtualThreadPerTaskExecutor();
+		try {
+			// When
+			var first = executor.submit(() -> {
+				admission.await(15, TimeUnit.SECONDS);
+				return post(firstReport, firstUser, reusedKey.toString());
+			});
+			var second = executor.submit(() -> {
+				admission.await(15, TimeUnit.SECONDS);
+				return post(secondReport, secondUser, reusedKey.toString());
+			});
+			admission.await(15, TimeUnit.SECONDS);
+
+			// Then
+			HttpResponse<String> firstResponse = first.get(15, TimeUnit.SECONDS);
+			HttpResponse<String> secondResponse = second.get(15, TimeUnit.SECONDS);
+			assertThat(java.util.List.of(firstResponse.statusCode(), secondResponse.statusCode()))
+				.containsExactlyInAnyOrder(200, 409);
+			HttpResponse<String> conflict = firstResponse.statusCode() == 409 ? firstResponse : secondResponse;
+			responses.error(conflict, 409, "POINT-001");
+			assertThat(jdbc.queryForObject(
+				"SELECT count(*) FROM point_ledger WHERE idempotency_key = ?", Integer.class, reusedKey
+			)).isOne();
+			assertThat(jdbc.queryForObject(
+				"SELECT count(*) FROM candidate_access_idempotency_receipts WHERE idempotency_key = ?",
+				Integer.class, reusedKey
+			)).isOne();
+			assertThat(count("candidate_accesses", firstReport) + count("candidate_accesses", secondReport)).isOne();
+		} finally {
+			executor.close();
+		}
 	}
 
 	@Test
@@ -283,10 +356,39 @@ class CandidateAccessApiIntegrationTest {
 				HttpResponse.BodyHandlers.ofString());
 	}
 
+	private CurlResponse curlPost(long reportId, User user, UUID key) throws Exception {
+		Process process = new ProcessBuilder(
+			"curl", "-sS", "-i", "--max-time", "15",
+			"-H", "Authorization: Bearer " + tokens.issue(user).value(),
+			"-H", "Idempotency-Key: " + key,
+			"-X", "POST",
+			"http://127.0.0.1:" + port + "/api/v1/lost-reports/" + reportId + "/candidate-accesses"
+		).redirectErrorStream(true).start();
+		boolean completed = process.waitFor(20, TimeUnit.SECONDS);
+		if (!completed) {
+			process.destroyForcibly();
+			throw new AssertionError("curl exceeded the bounded timeout");
+		}
+		String transcript = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+		assertThat(process.exitValue()).isZero();
+		String statusLine = transcript.lines().findFirst().orElseThrow();
+		int status = Integer.parseInt(statusLine.split(" ")[1]);
+		int separator = transcript.lastIndexOf("\r\n\r\n");
+		int delimiterLength = 4;
+		if (separator < 0) {
+			separator = transcript.lastIndexOf("\n\n");
+			delimiterLength = 2;
+		}
+		return new CurlResponse(status, transcript.substring(separator + delimiterLength));
+	}
+
 	private int count(String table, long reportId) {
 		String reference = table.equals("point_ledger") ? "reference_id" : "report_id";
 		return jdbc.queryForObject("SELECT count(*) FROM " + table + " WHERE " + reference + " = ?",
 				Integer.class, reportId);
+	}
+
+	private record CurlResponse(int status, String body) {
 	}
 
 }

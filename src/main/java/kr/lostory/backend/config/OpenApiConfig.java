@@ -11,12 +11,40 @@ import io.swagger.v3.oas.models.media.StringSchema;
 import io.swagger.v3.oas.models.responses.ApiResponse;
 import java.math.BigDecimal;
 import java.util.Map;
+import java.util.Set;
 import org.springdoc.core.customizers.OperationCustomizer;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 @Configuration
 public class OpenApiConfig {
+	private static final Set<String> PUBLIC_OPERATIONS = Set.of(
+		"AuthController#signup",
+		"AuthController#login",
+		"PartnerCenterController#activate"
+	);
+	private static final Set<String> STATE_CONFLICT_OPERATIONS = Set.of(
+		"AuthController#signup",
+		"FoundItemController#finalizeRegistration",
+		"FoundItemController#confirmHandover",
+		"LostReportController#candidates",
+		"LostReportController#update",
+		"LostReportController#close",
+		"PartnerCenterController#approve",
+		"PartnerCenterController#activate",
+		"DashboardHandoverController#list",
+		"DashboardHandoverController#accept",
+		"DashboardHandoverController#reject",
+		"ReturnController#record",
+		"CandidateAccessController#unlock"
+	);
+	private static final Set<String> TERMINAL_MEDIA_OPERATIONS = Set.of(
+		"FoundItemImageController#get"
+	);
+	private static final Set<String> VISION_CAPACITY_OPERATIONS = Set.of(
+		"FoundItemController#createDraft",
+		"FoundItemImageController#replace"
+	);
 
 	@Bean
 	OpenAPI lostoryOpenApi() {
@@ -53,6 +81,8 @@ public class OpenApiConfig {
 			Map.entry("status", "허용된 상태 필터"),
 			Map.entry("Idempotency-Key", "필수 소문자 표준 UUID(v1~v5), 기존 신고 열람은 추가 차감 없이 재생"));
 		return (operation, handlerMethod) -> {
+			String operationKey = handlerMethod.getBeanType().getSimpleName() + "#"
+				+ handlerMethod.getMethod().getName();
 			if (handlerMethod.getMethod().getName().equals("confirmHandover")) {
 				operation.setRequestBody(null);
 			}
@@ -91,8 +121,17 @@ public class OpenApiConfig {
 			});
 			operation.getResponses().addApiResponse("400", error("요청 형식 또는 검증 오류"));
 			operation.getResponses().addApiResponse("401", error("Bearer 인증 실패"));
-			if (handlerMethod.getMethod().getName().equals("unlock")) {
-				operation.getResponses().addApiResponse("409", error("멱등 키 충돌, 포인트 부족 또는 신고 상태 충돌"));
+			if (!PUBLIC_OPERATIONS.contains(operationKey)) {
+				operation.getResponses().addApiResponse("403", error("역할 또는 리소스 권한 거부"));
+			}
+			if (STATE_CONFLICT_OPERATIONS.contains(operationKey)) {
+				operation.getResponses().addApiResponse("409", error("현재 상태에서 실행할 수 없는 요청"));
+			}
+			if (TERMINAL_MEDIA_OPERATIONS.contains(operationKey)) {
+				operation.getResponses().addApiResponse("410", error("미디어를 더 이상 사용할 수 없음"));
+			}
+			if (VISION_CAPACITY_OPERATIONS.contains(operationKey)) {
+				operation.getResponses().addApiResponse("429", error("비전 처리 용량 초과"));
 			}
 			return operation;
 		};

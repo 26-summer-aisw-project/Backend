@@ -67,6 +67,29 @@ class OpenApiDocumentationIntegrationTest {
 	}
 
 	@Test
+	void generatedDocumentDeclaresOperationSpecificExecutableErrorStatuses() throws Exception {
+		// Given
+		JsonNode api = apiDocument();
+
+		// When
+		JsonNode adminCreate = api.path("paths").path("/api/v1/admin/lost-centers").path("post");
+		JsonNode reportUpdate = api.path("paths").path("/api/v1/lost-reports/{reportId}").path("patch");
+		JsonNode handoverAccept = api.path("paths")
+			.path("/api/v1/dashboard/handovers/{handoverId}:accept").path("post");
+		JsonNode imageRead = api.path("paths").path("/api/v1/found-items/{foundItemId}/image").path("get");
+		JsonNode imageReplace = api.path("paths").path("/api/v1/found-items/{foundItemId}/image").path("put");
+
+		// Then
+		assertErrorStatus(adminCreate, "403");
+		assertErrorStatus(reportUpdate, "409");
+		assertErrorStatus(handoverAccept, "403");
+		assertErrorStatus(handoverAccept, "409");
+		assertErrorStatus(imageRead, "410");
+		assertErrorStatus(imageReplace, "429");
+		System.out.println("OPENAPI_ERROR_STATUS_OBSERVABLE protected=403 state=409 media=410 capacity=429");
+	}
+
+	@Test
 	void retiredFoundItemRoutesReturnNotFoundAndStayOutOfOpenApi() throws Exception {
 		JsonNode api = apiDocument();
 		int registration = status(jsonRequest("POST", "/api/v1/found-items", "{}"));
@@ -85,6 +108,13 @@ class OpenApiDocumentationIntegrationTest {
 			HttpResponse.BodyHandlers.ofString());
 		assertThat(response.statusCode()).isEqualTo(200);
 		return objectMapper.readTree(response.body());
+	}
+
+	private void assertErrorStatus(JsonNode operation, String status) {
+		JsonNode response = operation.path("responses").path(status);
+		assertThat(response.isMissingNode()).as("documented status " + status).isFalse();
+		assertThat(response.path("content").path("application/json").path("schema").path("$ref").asString())
+			.endsWith("/ApiErrorResponse");
 	}
 
 	private void assertSecurity(ApiContractMatrix.Operation row, JsonNode operation) {

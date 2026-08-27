@@ -32,6 +32,7 @@ public class CandidateAccessService {
 
 	@Transactional
 	public CandidateAccessResponse unlock(Long reportId, Long requesterId, UUID idempotencyKey) {
+		records.lock(idempotencyKey);
 		LostReport report = locks.report(reportId);
 		if (!report.getReporterId().equals(requesterId)) {
 			throw new LostoryException(ErrorCode.RESOURCE_NOT_FOUND);

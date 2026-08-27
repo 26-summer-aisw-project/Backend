@@ -23,6 +23,10 @@ class CandidateAccessRecords {
 		return receipts.findById(key).orElse(null);
 	}
 
+	void lock(UUID key) {
+		receipts.lockByIdempotencyKey(key);
+	}
+
 	boolean ledgerKeyExists(UUID key) {
 		return ledger.findByIdempotencyKey(key).isPresent();
 	}
