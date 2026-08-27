@@ -156,6 +156,9 @@ public class SecurityConfig {
 				.permitAll()
 				.requestMatchers("/api/v1/admin/**").hasRole("ADMIN")
 				.requestMatchers("/api/v1/dashboard/**").hasRole("CENTER_MANAGER")
+				.requestMatchers(new RegexRequestMatcher(
+					"^/api/v1/found-items/[0-9]+/image$", HttpMethod.GET.name()))
+				.hasAnyRole("USER", "ADMIN", "CENTER_MANAGER")
 				.requestMatchers(HttpMethod.GET, "/api/v1/users/me").hasAnyRole("USER", "ADMIN", "CENTER_MANAGER")
 				.anyRequest().hasAnyRole("USER", "ADMIN"))
 			.exceptionHandling(exceptions -> exceptions

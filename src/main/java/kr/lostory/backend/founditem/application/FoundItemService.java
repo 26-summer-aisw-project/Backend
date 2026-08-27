@@ -5,11 +5,15 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
+import java.util.Objects;
 import kr.lostory.backend.audit.application.P0AuditService;
 import kr.lostory.backend.config.FoundItemProperties;
 import kr.lostory.backend.common.exception.ErrorCode;
 import kr.lostory.backend.common.exception.LostoryException;
 import kr.lostory.backend.founditem.domain.FoundItem;
+import kr.lostory.backend.founditem.domain.CenterHandover;
+import kr.lostory.backend.founditem.domain.CenterHandoverRepository;
+import kr.lostory.backend.founditem.domain.CenterHandoverStatus;
 import kr.lostory.backend.founditem.domain.FoundItemRepository;
 import kr.lostory.backend.founditem.domain.FoundItemStatus;
 import kr.lostory.backend.founditem.domain.HandoverStatus;
@@ -39,6 +43,7 @@ import org.springframework.util.StringUtils;
 public class FoundItemService {
 
     private final FoundItemRepository foundItemRepository;
+    private final CenterHandoverRepository handoverRepository;
     private final ItemFeatureRepository featureRepository;
     private final LostCenterRepository centerRepository;
     private final LostReportRepository reportRepository;
@@ -49,6 +54,7 @@ public class FoundItemService {
 
     public FoundItemService(
             FoundItemRepository foundItemRepository,
+            CenterHandoverRepository handoverRepository,
             ItemFeatureRepository featureRepository,
             LostCenterRepository centerRepository,
             LostReportRepository reportRepository,
@@ -58,6 +64,7 @@ public class FoundItemService {
             JdbcTemplate jdbc
     ) {
         this.foundItemRepository = foundItemRepository;
+        this.handoverRepository = handoverRepository;
         this.featureRepository = featureRepository;
         this.centerRepository = centerRepository;
         this.reportRepository = reportRepository;
@@ -73,6 +80,7 @@ public class FoundItemService {
             Long requesterId,
             FinalizeFoundItemRegistrationRequest request
     ) {
+        HandoverSnapshot admission = currentHandover(id);
         FoundItem item = foundItemRepository.findByIdForUpdate(id)
                 .orElseThrow(() -> new LostoryException(ErrorCode.RESOURCE_NOT_FOUND));
         if (!item.getFinderId().equals(requesterId)) {
@@ -81,6 +89,8 @@ public class FoundItemService {
         if (!item.isRegistrationMutable()) {
             throw new LostoryException(ErrorCode.INVALID_REQUEST);
         }
+        HandoverSnapshot current = currentHandover(id);
+        rejectStaleAdmission(admission, current);
         boolean finalizingDraft = item.getStatus() == FoundItemStatus.DRAFT;
         Instant databaseNow = jdbc.queryForObject("SELECT clock_timestamp()", Timestamp.class).toInstant();
         boolean wasMatchingEligible = matchingEligible(item, databaseNow);
@@ -106,6 +116,18 @@ public class FoundItemService {
                 && confirmedFeature(item.getId(), ItemFeatureKind.PUBLIC_DESCRIPTION)
                 .filter(publicDescription::equals).isPresent();
 
+        boolean registrationUnchanged = matchingFieldsUnchanged
+                && confirmedFeaturesUnchanged
+                && item.getStorageMethod() == request.storageMethod()
+                && Objects.equals(item.getStorageDescription(), storageDescription)
+                && Objects.equals(item.getCenterId(), centerId);
+        if (registrationUnchanged && handoverStateUnchanged(item, current)) {
+            return FoundItemRegistrationResponse.from(item);
+        }
+        if (current != null && current.status() == CenterHandoverStatus.CENTER_CONFIRMED) {
+            throw new LostoryException(ErrorCode.INVALID_STATE);
+        }
+
         item.finalizeRegistration(
                 category,
                 request.foundAt(),
@@ -129,15 +151,22 @@ public class FoundItemService {
         if (withdrawingHandover) {
             audit.handoverWithdrawn(requesterId, item.getId());
         }
+        supersede(current);
         return FoundItemRegistrationResponse.from(item);
     }
 
     @Transactional
     public FoundItemRegistrationResponse confirmHandover(Long id, Long requesterId) {
+        HandoverSnapshot admission = currentHandover(id);
         FoundItem item = foundItemRepository.findByIdForUpdate(id)
                 .orElseThrow(() -> new LostoryException(ErrorCode.RESOURCE_NOT_FOUND));
         if (!item.getFinderId().equals(requesterId)) {
             throw new LostoryException(ErrorCode.RESOURCE_NOT_FOUND);
+        }
+        HandoverSnapshot current = currentHandover(id);
+        rejectStaleAdmission(admission, current);
+        if (current != null && current.status() == CenterHandoverStatus.CENTER_CONFIRMED) {
+            throw new LostoryException(ErrorCode.INVALID_STATE);
         }
         if (item.getStatus() != FoundItemStatus.PENDING_HANDOVER
                 || item.getStorageMethod() != StorageMethod.HANDED_TO_CENTER
@@ -148,10 +177,50 @@ public class FoundItemService {
                         item.getCenterId(), item.getFoundLatitude(), item.getFoundLongitude())) {
             throw new LostoryException(ErrorCode.INVALID_REQUEST);
         }
-        item.confirmHandover(clock.instant().truncatedTo(ChronoUnit.MICROS));
+        Instant confirmedAt = clock.instant().truncatedTo(ChronoUnit.MICROS);
+        item.confirmHandover(confirmedAt);
         reportRepository.markOpenCandidatesStale();
+        supersede(current);
+        handoverRepository.save(new CenterHandover(item.getId(), item.getCenterId(), confirmedAt));
         audit.handoverUserConfirmed(requesterId, item.getId());
         return FoundItemRegistrationResponse.from(item);
+    }
+
+    private HandoverSnapshot currentHandover(Long foundItemId) {
+        List<HandoverSnapshot> rows = jdbc.query("""
+                SELECT id, status FROM center_handovers
+                WHERE found_item_id = ? AND superseded_at IS NULL
+                """, (result, row) -> new HandoverSnapshot(
+                        result.getLong("id"), CenterHandoverStatus.valueOf(result.getString("status"))),
+                foundItemId);
+        return rows.isEmpty() ? null : rows.getFirst();
+    }
+
+    private void rejectStaleAdmission(HandoverSnapshot admission, HandoverSnapshot current) {
+        if (admission != null
+                && admission.status() == CenterHandoverStatus.USER_CONFIRMED
+                && !Objects.equals(admission, current)) {
+            throw new LostoryException(ErrorCode.INVALID_STATE);
+        }
+    }
+
+    private boolean handoverStateUnchanged(FoundItem item, HandoverSnapshot current) {
+        return current != null && switch (current.status()) {
+            case USER_CONFIRMED -> item.getHandoverStatus() == HandoverStatus.USER_CONFIRMED;
+            case CENTER_CONFIRMED -> item.getHandoverStatus() == HandoverStatus.CENTER_CONFIRMED;
+            case REJECTED -> false;
+        };
+    }
+
+    private void supersede(HandoverSnapshot current) {
+        if (current != null) {
+            CenterHandover handover = handoverRepository.findById(current.id())
+                    .orElseThrow(() -> new LostoryException(ErrorCode.INVALID_STATE));
+            handover.supersede(clock.instant().truncatedTo(ChronoUnit.MICROS));
+        }
+    }
+
+    private record HandoverSnapshot(Long id, CenterHandoverStatus status) {
     }
 
     private void validateRegistrationStorage(

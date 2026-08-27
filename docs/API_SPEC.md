@@ -205,7 +205,7 @@ P0에는 모든 FoundItem 필드를 한 번에 반환하는 공통 응답이 없
 #### get-found-item-image
 > GET `/found-items/{itemId}/image`
 
-- 소유자 또는 ADMIN이 현재 비공개 사진의 5분 유효 GET 서명 URL을 조회한다. 객체 키·저장 경로·저장 파일명은 반환하지 않으며 응답은 캐시하지 않는다.
+- 소유자, ADMIN 또는 해당 습득물의 센터와 일치하는 활성 파트너십의 지정 담당자가 현재 비공개 사진의 5분 유효 GET 서명 URL을 조회한다. 센터 담당자는 현재 인계가 `USER_CONFIRMED` 또는 `CENTER_CONFIRMED`일 때만 접근할 수 있다. 외부·비활성 담당자와 거절·대체된 인계는 404로 은닉한다. 객체 키·저장 경로·저장 파일명은 반환하지 않으며 응답은 캐시하지 않는다.
 
 **요청 payload**
 
@@ -520,6 +520,7 @@ P1 센터 수락 전에는 `PATCH /found-items/{itemId}/registration`으로 인�
 > GET `/dashboard/handovers`
 
 - 활성 관리 계정이 자기 센터를 선택한 사용자 인계 주장 대기열을 조회한다.
+- 센터 ID는 클라이언트 입력이 아니라 활성 파트너십에서만 결정한다. 다른 센터의 항목은 조회하거나 결정할 수 없다.
 
 **요청 payload**
 
@@ -537,6 +538,7 @@ P1 센터 수락 전에는 `PATCH /found-items/{itemId}/registration`으로 인�
 > POST `/dashboard/handovers/{handoverId}:accept`
 
 - 담당자가 실물을 확인한 경우에만 사용자 인계를 센터 확인으로 수락한다.
+- `privateFeatures`는 이 요청의 실물 확인에만 사용하며 저장·감사·로그·오류·응답에 포함하지 않는다. 빈 배열과 공백 문자열은 400이다.
 
 **요청 payload**
 
@@ -554,6 +556,7 @@ P1 센터 수락 전에는 `PATCH /found-items/{itemId}/registration`으로 인�
 > POST `/dashboard/handovers/{handoverId}:reject`
 
 - 담당자가 실물을 찾지 못하면 수락하지 않는다. 사용자 진술은 삭제하지 않는다.
+- 같은 인계에 대한 두 번째 또는 반대 결정은 409 `STATE-001`이다.
 
 **요청 payload**
 

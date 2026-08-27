@@ -32,14 +32,17 @@ public class FoundItemImageController {
     }
 
     @GetMapping
-    @Operation(summary = "습득물 사진 조회", description = "소유자 또는 ADMIN이 현재 비공개 사진의 5분 유효 서명 URL을 JSON으로 조회합니다.")
+    @Operation(summary = "습득물 사진 조회", description = "소유자, ADMIN 또는 같은 센터의 활성 지정 담당자가 확인 가능한 인계의 5분 유효 서명 URL을 JSON으로 조회합니다. 그 밖의 호출자는 404로 은닉됩니다.")
     public ResponseEntity<FoundItemSignedUrlResponse> get(
             @PathVariable Long foundItemId,
             @AuthenticationPrincipal Jwt jwt
     ) {
         List<String> roles = jwt.getClaimAsStringList("roles");
         FoundItemSignedUrlResponse response = service.getCurrent(
-                foundItemId, Long.valueOf(jwt.getSubject()), roles != null && roles.contains("ADMIN"));
+                foundItemId,
+                Long.valueOf(jwt.getSubject()),
+                roles != null && roles.contains("ADMIN"),
+                roles != null && roles.contains("CENTER_MANAGER"));
         return ResponseEntity.ok()
                 .cacheControl(CacheControl.noStore())
                 .body(response);

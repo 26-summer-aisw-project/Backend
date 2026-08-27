@@ -11,6 +11,8 @@ import kr.lostory.backend.common.exception.LostoryException;
 import kr.lostory.backend.common.storage.ObjectStorage;
 import kr.lostory.backend.common.storage.ObjectStorageException;
 import kr.lostory.backend.founditem.domain.FoundItem;
+import kr.lostory.backend.founditem.domain.CenterHandoverRepository;
+import kr.lostory.backend.founditem.domain.CenterHandoverStatus;
 import kr.lostory.backend.founditem.domain.FoundItemImage;
 import kr.lostory.backend.founditem.domain.FoundItemImageRepository;
 import kr.lostory.backend.founditem.domain.FoundItemRepository;
@@ -18,6 +20,8 @@ import kr.lostory.backend.founditem.presentation.FoundItemImageResponse;
 import kr.lostory.backend.config.FoundItemProperties;
 import kr.lostory.backend.config.ObjectStorageProperties;
 import kr.lostory.backend.founditem.presentation.FoundItemSignedUrlResponse;
+import kr.lostory.backend.partner.domain.CenterPartnershipRepository;
+import kr.lostory.backend.partner.domain.PartnershipStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -30,6 +34,8 @@ public class FoundItemImageService {
 
     private final FoundItemRepository foundItemRepository;
     private final FoundItemImageRepository imageRepository;
+    private final CenterHandoverRepository handoverRepository;
+    private final CenterPartnershipRepository partnershipRepository;
     private final FoundItemImagePersistenceService persistenceService;
     private final VisionDailyAdmissionService admissionService;
     private final ObjectStorage storage;
@@ -40,6 +46,8 @@ public class FoundItemImageService {
     public FoundItemImageService(
             FoundItemRepository foundItemRepository,
             FoundItemImageRepository imageRepository,
+            CenterHandoverRepository handoverRepository,
+            CenterPartnershipRepository partnershipRepository,
             FoundItemImagePersistenceService persistenceService,
             VisionDailyAdmissionService admissionService,
             ObjectStorage storage,
@@ -49,6 +57,8 @@ public class FoundItemImageService {
     ) {
         this.foundItemRepository = foundItemRepository;
         this.imageRepository = imageRepository;
+        this.handoverRepository = handoverRepository;
+        this.partnershipRepository = partnershipRepository;
         this.persistenceService = persistenceService;
         this.admissionService = admissionService;
         this.storage = storage;
@@ -118,10 +128,16 @@ public class FoundItemImageService {
     }
 
     @Transactional(readOnly = true)
-    public FoundItemSignedUrlResponse getCurrent(Long foundItemId, Long requesterId, boolean admin) {
+    public FoundItemSignedUrlResponse getCurrent(
+            Long foundItemId,
+            Long requesterId,
+            boolean admin,
+            boolean centerManager
+    ) {
         FoundItem item = foundItemRepository.findById(foundItemId)
                 .orElseThrow(() -> new LostoryException(ErrorCode.RESOURCE_NOT_FOUND));
-        if (!admin && !item.getFinderId().equals(requesterId)) {
+        if (!admin && !item.getFinderId().equals(requesterId)
+                && (!centerManager || !managerCanRead(item, requesterId))) {
             throw new LostoryException(ErrorCode.RESOURCE_NOT_FOUND);
         }
         FoundItemImage image = imageRepository.findByFoundItemIdAndCurrentTrue(foundItemId)
@@ -140,6 +156,16 @@ public class FoundItemImageService {
         } catch (ObjectStorageException exception) {
             throw unavailable(item);
         }
+    }
+
+    private boolean managerCanRead(FoundItem item, Long managerId) {
+        return partnershipRepository.findByManagerUserIdAndStatus(managerId, PartnershipStatus.ACTIVE)
+                .filter(partnership -> partnership.getCenterId().equals(item.getCenterId()))
+                .flatMap(partnership -> handoverRepository
+                        .findByFoundItemIdAndSupersededAtIsNull(item.getId()))
+                .filter(handover -> handover.getStatus() == CenterHandoverStatus.USER_CONFIRMED
+                        || handover.getStatus() == CenterHandoverStatus.CENTER_CONFIRMED)
+                .isPresent();
     }
 
     private LostoryException unavailable(FoundItem item) {

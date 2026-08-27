@@ -12,4 +12,6 @@ public interface CenterPartnershipRepository extends JpaRepository<CenterPartner
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select partnership from CenterPartnership partnership where partnership.id = :id")
     Optional<CenterPartnership> findByIdForUpdate(@Param("id") Long id);
+
+    Optional<CenterPartnership> findByManagerUserIdAndStatus(Long managerUserId, PartnershipStatus status);
 }

@@ -231,6 +231,10 @@ public class FoundItem {
         this.status = FoundItemStatus.ACTIVE;
     }
 
+    public void acceptHandover() {
+        this.handoverStatus = HandoverStatus.CENTER_CONFIRMED;
+    }
+
     private boolean decimalEquals(BigDecimal current, BigDecimal next) {
         return current != null && current.compareTo(next) == 0;
     }

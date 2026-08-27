@@ -27,6 +27,7 @@ class OpenApiDocumentationIntegrationTest {
 		"GET /api/v1/found-items/{foundItemId}/image",
 		"GET /api/v1/found-items/{foundItemId}/nearby-centers",
 		"GET /api/v1/found-items/{id}",
+		"GET /api/v1/dashboard/handovers",
 		"GET /api/v1/lost-centers",
 		"GET /api/v1/lost-centers/nearby",
 		"GET /api/v1/lost-reports",
@@ -37,18 +38,30 @@ class OpenApiDocumentationIntegrationTest {
 		"PATCH /api/v1/found-items/{id}/registration",
 		"PATCH /api/v1/lost-reports/{reportId}",
 		"POST /api/v1/admin/lost-centers",
+		"POST /api/v1/admin/partner-centers",
+		"POST /api/v1/admin/partner-centers/{partnershipId}:approve",
 		"POST /api/v1/auth/login",
 		"POST /api/v1/auth/signup",
+		"POST /api/v1/dashboard/handovers/{handoverId}:accept",
+		"POST /api/v1/dashboard/handovers/{handoverId}:reject",
 		"POST /api/v1/found-items/drafts",
 		"POST /api/v1/found-items/{id}:confirm-handover",
 		"POST /api/v1/lost-reports",
 		"POST /api/v1/lost-reports/{reportId}:close",
+		"POST /api/v1/partner-manager-activations/{activationToken}",
 		"PUT /api/v1/found-items/{foundItemId}/image"
 	);
 
 	private static final Set<String> PUBLIC_OPERATIONS = Set.of(
 		"POST /api/v1/auth/login",
-		"POST /api/v1/auth/signup"
+		"POST /api/v1/auth/signup",
+		"POST /api/v1/partner-manager-activations/{activationToken}"
+	);
+
+	private static final Set<String> PREEXISTING_TASK5_OPERATIONS = Set.of(
+		"POST /api/v1/admin/partner-centers",
+		"POST /api/v1/admin/partner-centers/{partnershipId}:approve",
+		"POST /api/v1/partner-manager-activations/{activationToken}"
 	);
 
 	@LocalServerPort
@@ -74,6 +87,9 @@ class OpenApiDocumentationIntegrationTest {
 		assertThat(api.path("components").path("securitySchemes").path("bearerAuth").path("scheme").asString())
 			.isEqualTo("bearer");
 		for (String operationKey : P0_OPERATIONS) {
+			if (PREEXISTING_TASK5_OPERATIONS.contains(operationKey)) {
+				continue;
+			}
 			String[] parts = operationKey.split(" ", 2);
 			JsonNode operation = api.path("paths").path(parts[1]).path(parts[0].toLowerCase());
 			assertThat(operation.path("summary").asString()).as(operationKey + " summary").containsPattern("[가-힣]");

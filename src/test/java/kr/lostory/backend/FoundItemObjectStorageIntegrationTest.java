@@ -160,6 +160,71 @@ class FoundItemObjectStorageIntegrationTest {
     }
 
     @Test
+    void assignedManagerImageAccessIsCenterPartnershipAndDecisionStateScoped() throws Exception {
+        // Given
+        User owner = user(UserRole.USER);
+        User assigned = user(UserRole.CENTER_MANAGER);
+        User foreign = user(UserRole.CENTER_MANAGER);
+        User inactive = user(UserRole.CENTER_MANAGER);
+        FoundItem item = item(owner);
+        imageService.upload(item.getId(), owner.getId(), image("wallet.png", PNG));
+        Long centerId = center("assigned");
+        Long foreignCenterId = center("foreign");
+        jdbc.update("""
+                UPDATE found_items
+                SET storage_method='HANDED_TO_CENTER', storage_description=NULL, center_id=?,
+                    handover_status='USER_CONFIRMED', handed_at=updated_at
+                WHERE id=?
+                """, centerId, item.getId());
+        Long handoverId = jdbc.queryForObject("""
+                INSERT INTO center_handovers
+                    (found_item_id, center_id, status, user_confirmed_at, created_at)
+                VALUES (?, ?, 'USER_CONFIRMED', now(), now()) RETURNING id
+                """, Long.class, item.getId(), centerId);
+        activePartnership(assigned, centerId);
+        activePartnership(foreign, foreignCenterId);
+        jdbc.update("""
+                INSERT INTO center_partnerships
+                    (center_id, manager_email, manager_display_name, status, created_at, updated_at)
+                VALUES (?, ?, 'Inactive', 'PENDING', now(), now())
+                """, centerId, inactive.getEmail());
+
+        // When
+        CurlResult userConfirmed = curl(item.getId(), tokenService.issue(assigned).value());
+        CurlResult foreignResponse = curl(item.getId(), tokenService.issue(foreign).value());
+        CurlResult inactiveResponse = curl(item.getId(), tokenService.issue(inactive).value());
+        jdbc.update("""
+                UPDATE center_handovers
+                SET status='CENTER_CONFIRMED', decided_at=now(), decided_by=? WHERE id=?
+                """, assigned.getId(), handoverId);
+        jdbc.update("UPDATE found_items SET handover_status='CENTER_CONFIRMED' WHERE id=?", item.getId());
+        CurlResult centerConfirmed = curl(item.getId(), tokenService.issue(assigned).value());
+        jdbc.update("""
+                UPDATE center_handovers
+                SET status='REJECTED', rejection_reason='not found' WHERE id=?
+                """, handoverId);
+        jdbc.update("UPDATE found_items SET handover_status='USER_CONFIRMED' WHERE id=?", item.getId());
+        CurlResult rejected = curl(item.getId(), tokenService.issue(assigned).value());
+        jdbc.update("UPDATE center_handovers SET superseded_at=now() WHERE id=?", handoverId);
+        jdbc.update("UPDATE found_items SET center_id=?, handover_status='USER_CONFIRMED' WHERE id=?",
+                foreignCenterId, item.getId());
+        jdbc.update("""
+                INSERT INTO center_handovers
+                    (found_item_id, center_id, status, user_confirmed_at, created_at)
+                VALUES (?, ?, 'USER_CONFIRMED', now(), now())
+                """, item.getId(), foreignCenterId);
+        CurlResult supersededManager = curl(
+                "superseded-old-center-manager", item.getId(), tokenService.issue(assigned).value());
+
+        // Then
+        assertThat(userConfirmed.status()).isEqualTo(200);
+        assertThat(centerConfirmed.status()).isEqualTo(200);
+        for (CurlResult concealed : List.of(foreignResponse, inactiveResponse, rejected, supersededManager)) {
+            assertCurlError(concealed, 404, "COMMON-004");
+        }
+    }
+
+    @Test
     void missingObjectPresignFailureAndExpiredResultUseEstablishedMediaErrors() throws Exception {
         User owner = user(UserRole.USER);
         FoundItem noMedia = item(owner);
@@ -337,6 +402,10 @@ class FoundItemObjectStorageIntegrationTest {
         User admin = user(UserRole.ADMIN);
         User foreign = user(UserRole.USER);
         User manager = user(UserRole.CENTER_MANAGER);
+        User blocked = user(UserRole.USER);
+        User deleted = user(UserRole.USER);
+        String blockedToken = tokenService.issue(blocked).value();
+        String deletedToken = tokenService.issue(deleted).value();
         FoundItem item = item(owner);
         FoundItem missingMediaItem = item(owner);
         imageService.upload(item.getId(), owner.getId(), image("wallet.png", PNG));
@@ -345,6 +414,10 @@ class FoundItemObjectStorageIntegrationTest {
         CurlResult adminGet = curl(item.getId(), tokenService.issue(admin).value());
         CurlResult foreignGet = curl(item.getId(), tokenService.issue(foreign).value());
         CurlResult managerGet = curl(item.getId(), tokenService.issue(manager).value());
+        jdbc.update("UPDATE users SET status='BLOCKED' WHERE id=?", blocked.getId());
+        jdbc.update("UPDATE users SET status='DELETED' WHERE id=?", deleted.getId());
+        CurlResult blockedGet = curl("blocked-jwt", item.getId(), blockedToken);
+        CurlResult deletedGet = curl("deleted-jwt", item.getId(), deletedToken);
         CurlResult malformedItem = curl("not-a-number", tokenService.issue(owner).value());
         CurlResult missingItem = curl(Long.MAX_VALUE, tokenService.issue(owner).value());
         CurlResult missingMedia = curl(missingMediaItem.getId(), tokenService.issue(owner).value());
@@ -367,7 +440,9 @@ class FoundItemObjectStorageIntegrationTest {
             assertThat(response.body().get("expiresAt").asString()).isEqualTo(SIGNED_EXPIRY.toString());
         }
         assertCurlError(foreignGet, 404, "COMMON-004");
-        assertCurlError(managerGet, 403, "COMMON-003");
+        assertCurlError(managerGet, 404, "COMMON-004");
+        assertCurlError(blockedGet, 401, "AUTH-003");
+        assertCurlError(deletedGet, 401, "AUTH-003");
         assertCurlError(malformedItem, 400, "COMMON-001");
         assertCurlError(missingItem, 404, "COMMON-004");
         assertCurlError(missingMedia, 404, "COMMON-004");
@@ -386,6 +461,7 @@ class FoundItemObjectStorageIntegrationTest {
         String oldKey = storage.keys().getFirst();
         imageService.upload(item.getId(), owner.getId(), image("two.png", PNG));
         storage.delete(oldKey);
+        jdbc.update("UPDATE object_deletion_outbox SET next_attempt_at=clock_timestamp()-interval '1 second'");
         Map<String, Object> pending = jdbc.queryForMap("""
                 SELECT status, next_attempt_at <= clock_timestamp() AS eligible
                 FROM object_deletion_outbox
@@ -444,6 +520,26 @@ class FoundItemObjectStorageIntegrationTest {
                 StorageMethod.LEFT_IN_PLACE, null, null));
     }
 
+    private Long center(String suffix) {
+        return jdbc.queryForObject("""
+                INSERT INTO lost_centers
+                    (source_key, name, address, location, contact_phone, operating_hours,
+                     verification_status, is_active, is_csv_managed, created_at, updated_at)
+                VALUES (?, 'Center', 'Seoul', ST_SetSRID(ST_MakePoint(127.0, 37.5), 4326)::geography,
+                        '02-0000-0000', '09-18', 'official_verified', true, true, now(), now())
+                RETURNING id
+                """, Long.class, "task7-image:" + suffix + ":" + UUID.randomUUID());
+    }
+
+    private void activePartnership(User manager, Long centerId) {
+        jdbc.update("""
+                INSERT INTO center_partnerships
+                    (center_id, manager_email, manager_display_name, status, manager_user_id,
+                     created_at, updated_at, activated_at)
+                VALUES (?, ?, 'Manager', 'ACTIVE', ?, now(), now(), now())
+                """, centerId, manager.getEmail(), manager.getId());
+    }
+
     private MockMultipartFile image(String filename, byte[] bytes) {
         return new MockMultipartFile("image", filename, "image/png", bytes);
     }
@@ -487,10 +583,18 @@ class FoundItemObjectStorageIntegrationTest {
     }
 
     private CurlResult curl(long itemId, String token) throws Exception {
-        return curl(Long.toString(itemId), token);
+        return curl("image", Long.toString(itemId), token);
     }
 
     private CurlResult curl(String itemId, String token) throws Exception {
+        return curl("image", itemId, token);
+    }
+
+    private CurlResult curl(String scenario, long itemId, String token) throws Exception {
+        return curl(scenario, Long.toString(itemId), token);
+    }
+
+    private CurlResult curl(String scenario, String itemId, String token) throws Exception {
         Process process = new ProcessBuilder(
                 "curl", "-sS", "-i", "--max-time", "15",
                 "-H", "Authorization: Bearer " + token,
@@ -522,7 +626,7 @@ class FoundItemObjectStorageIntegrationTest {
         if (redactedBody instanceof ObjectNode objectBody && objectBody.has("url")) {
             objectBody.put("url", "<REDACTED_SIGNED_URL>");
         }
-        System.out.println("CURL_RAW_REDACTED\n"
+        System.out.println("CURL_RAW_REDACTED scenario=" + scenario + "\n"
                 + statusLine + "\r\n"
                 + "Content-Type: " + contentType + "\r\n"
                 + "Cache-Control: " + cacheControl + "\r\n"
