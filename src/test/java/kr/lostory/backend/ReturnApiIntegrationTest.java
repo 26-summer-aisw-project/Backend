@@ -455,9 +455,16 @@ class ReturnApiIntegrationTest {
 
         // Then
         assertThat(returned.statusCode()).isEqualTo(201);
-        assertError(registrationResult, 400, "COMMON-001");
+        assertThat(returned.body()).doesNotContain("finder", "email", "location", "private", "token", "metadata");
+        if (registrationResult.statusCode() == 400) {
+            assertError(registrationResult, 400, "COMMON-001");
+        } else {
+            assertError(registrationResult, 409, "STATE-001");
+        }
+        assertThat(registrationResult.body()).doesNotContain("email", "private", "metadata");
         assertThat(count("return_records")).isOne();
         assertThat(rewardCount()).isOne();
+        assertDurableReturn(manager, fixture);
     }
 
     @Test
