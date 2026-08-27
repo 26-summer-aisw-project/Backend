@@ -17,6 +17,7 @@ public class VisionConfig {
 
     @Bean(destroyMethod = "close")
     @ConditionalOnProperty(name = "vision.enabled", havingValue = "true")
+    @ConditionalOnProperty(name = "vision.provider", havingValue = "google-cloud-vision", matchIfMissing = true)
     ImageAnnotatorClient imageAnnotatorClient(VisionProperties properties) throws IOException {
         ImageAnnotatorSettings.Builder settings = ImageAnnotatorSettings.newBuilder()
                 .setCredentialsProvider(GoogleCredentials::getApplicationDefault);
@@ -37,6 +38,7 @@ public class VisionConfig {
 
     @Bean
     @ConditionalOnProperty(name = "vision.enabled", havingValue = "true")
+    @ConditionalOnProperty(name = "vision.provider", havingValue = "google-cloud-vision", matchIfMissing = true)
     VisionProvider googleCloudVisionProvider(ImageAnnotatorClient client) {
         return new GoogleCloudVisionProvider(client);
     }
