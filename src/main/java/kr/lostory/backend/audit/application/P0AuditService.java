@@ -13,6 +13,7 @@ public class P0AuditService {
     private static final String LOST_CENTER = "LOST_CENTER";
     private static final String CENTER_PARTNERSHIP = "CENTER_PARTNERSHIP";
     private static final String CENTER_HANDOVER = "CENTER_HANDOVER";
+    private static final String RETURN_RECORD = "RETURN_RECORD";
 
     private final AuditLogRepository repository;
 
@@ -73,6 +74,11 @@ public class P0AuditService {
     @Transactional(propagation = Propagation.MANDATORY)
     public void handoverCenterRejected(Long managerId, Long handoverId) {
         record(managerId, "HANDOVER_CENTER_REJECTED", CENTER_HANDOVER, handoverId);
+    }
+
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void itemReturned(Long managerId, Long returnId) {
+        record(managerId, "ITEM_RETURNED", RETURN_RECORD, returnId);
     }
 
     private void record(Long userId, String action, String targetType, Long targetId) {
