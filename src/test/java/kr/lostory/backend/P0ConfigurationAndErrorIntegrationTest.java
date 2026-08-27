@@ -10,6 +10,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.Set;
+import java.util.UUID;
 
 import kr.lostory.backend.auth.JwtTokenService;
 import kr.lostory.backend.config.FoundItemProperties;
@@ -20,7 +21,7 @@ import kr.lostory.backend.config.MatchingProperties;
 import kr.lostory.backend.config.ObjectStorageProperties;
 import kr.lostory.backend.config.VisionProperties;
 import kr.lostory.backend.user.domain.User;
-import kr.lostory.backend.user.domain.UserRole;
+import kr.lostory.backend.user.repository.UserRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -38,8 +39,6 @@ import tools.jackson.databind.ObjectMapper;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowable;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
 
 @ActiveProfiles("test")
 @Import(PostgresTestContainerConfig.class)
@@ -89,6 +88,9 @@ class P0ConfigurationAndErrorIntegrationTest {
 
 	@Autowired
 	private JwtTokenService tokenService;
+
+	@Autowired
+	private UserRepository userRepository;
 
 	@Autowired
 	private JwtProperties jwtProperties;
@@ -153,9 +155,8 @@ class P0ConfigurationAndErrorIntegrationTest {
 	@Test
 	void authenticatedMissingResourceReturnsExactP0ErrorContract(CapturedOutput output) throws Exception {
 		// Given
-		User user = mock(User.class);
-		when(user.getId()).thenReturn(42L);
-		when(user.getRoles()).thenReturn(Set.of(UserRole.USER));
+		User user = userRepository.saveAndFlush(new User(
+			"p0-missing-" + UUID.randomUUID() + "@example.test", "test-password-hash", "Missing Resource User"));
 		String token = tokenService.issue(user).value();
 		HttpRequest request = request("/api/v1/found-items/9223372036854775807")
 			.header("Authorization", "Bearer " + token)

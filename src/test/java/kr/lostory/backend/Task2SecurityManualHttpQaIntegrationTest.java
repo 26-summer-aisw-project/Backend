@@ -77,7 +77,8 @@ class Task2SecurityManualHttpQaIntegrationTest {
 		CurlResult managerProfilePost = curl("POST", "/api/v1/users/me", managerToken);
 		CurlResult managerItem = curl("GET", "/api/v1/found-items/1", managerToken);
 		CurlResult managerImage = curl("GET", "/api/v1/found-items/1/image", managerToken);
-		CurlResult activationPost = curl("POST", "/api/v1/partner-manager-activations/test-token", null);
+		CurlResult activationPost = curl("POST", "/api/v1/partner-manager-activations/test-token", null,
+			"{\"password\":\"safe-password-123\"}");
 		CurlResult activationGet = curl("GET", "/api/v1/partner-manager-activations/test-token", null);
 		CurlResult activationExtra = curl("POST", "/api/v1/partner-manager-activations/test-token/extra", null);
 
@@ -89,7 +90,7 @@ class Task2SecurityManualHttpQaIntegrationTest {
 		assertProfile(managerProfile, "CENTER_MANAGER");
 		assertError(managerProfilePost, 403, "COMMON-003", "You do not have permission to access this resource.");
 		assertError(managerItem, 403, "COMMON-003", "You do not have permission to access this resource.");
-		assertError(managerImage, 403, "COMMON-003", "You do not have permission to access this resource.");
+		assertError(managerImage, 404, "COMMON-004", "The requested resource could not be found.");
 		assertError(activationPost, 404, "COMMON-004", "The requested resource could not be found.");
 		assertError(activationGet, 401, "COMMON-002", "Authentication is required.");
 		assertError(activationExtra, 401, "COMMON-002", "Authentication is required.");
@@ -114,11 +115,19 @@ class Task2SecurityManualHttpQaIntegrationTest {
 	}
 
 	private CurlResult curl(String method, String path, String token) throws Exception {
+		return curl(method, path, token, null);
+	}
+
+	private CurlResult curl(String method, String path, String token, String requestBody) throws Exception {
 		List<String> command = new java.util.ArrayList<>(List.of(
-			"curl", "-sS", "-i", "--max-time", "15", "-X", method, "http://127.0.0.1:" + port + path));
+			"curl", "-sS", "-i", "--max-time", "15", "-X", method));
 		if (token != null) {
 			command.addAll(List.of("-H", "Authorization: Bearer " + token));
 		}
+		if (requestBody != null) {
+			command.addAll(List.of("-H", "Content-Type: application/json", "--data", requestBody));
+		}
+		command.add("http://127.0.0.1:" + port + path);
 		Process process = new ProcessBuilder(command).redirectErrorStream(true).start();
 		String response;
 		try {
@@ -139,8 +148,11 @@ class Task2SecurityManualHttpQaIntegrationTest {
 		int status = Integer.parseInt(statusLine.split(" ")[1]);
 		JsonNode body = objectMapper.readTree(response.substring(bodyStart + 4));
 		String redactedHeader = token == null ? "" : " -H 'Authorization: Bearer <REDACTED>'";
-		System.out.printf("CURL: curl -i --max-time 15 -X %s http://127.0.0.1:%d%s%s%n",
-			method, port, path, redactedHeader);
+		String methodOption = "GET".equals(method) ? "" : " -X " + method;
+		String redactedBody = requestBody == null ? ""
+			: " -H 'Content-Type: application/json' --data '{\"password\":\"<REDACTED>\"}'";
+		System.out.printf("CURL: curl -i --max-time 15%s%s%s http://127.0.0.1:%d%s%n",
+			redactedHeader, methodOption, redactedBody, port, path);
 		System.out.printf("OBSERVED: status=%d body.fields=%s code=%s%n",
 			status, body.propertyNames(), body.has("code") ? body.get("code").asString() : "<none>");
 		return new CurlResult(status, body);

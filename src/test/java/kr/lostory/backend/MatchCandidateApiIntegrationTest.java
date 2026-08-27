@@ -44,6 +44,7 @@ class MatchCandidateApiIntegrationTest {
 		jdbc.update("DELETE FROM object_deletion_outbox");
 		jdbc.update("DELETE FROM found_item_images");
 		jdbc.update("DELETE FROM item_features");
+		jdbc.update("DELETE FROM center_handovers");
 		jdbc.update("DELETE FROM found_items");
 	}
 

@@ -236,16 +236,17 @@ class JwtSecurityIntegrationTest {
 		HttpResponse<String> managerProfilePost = exchange(HttpMethod.POST, "/api/v1/users/me", managerToken);
 		Map<String, HttpResponse<String>> managerDenied = Map.of(
 			"found-item", get("/api/v1/found-items/1", managerToken),
-			"found-item-image", get("/api/v1/found-items/1/image", managerToken),
 			"lost-report", get("/api/v1/lost-reports/1", managerToken),
 			"lost-center", get("/api/v1/lost-centers", managerToken));
+		HttpResponse<String> managerImage = get("/api/v1/found-items/1/image", managerToken);
 		HttpResponse<String> managerDashboard = get("/api/v1/dashboard/unmapped", managerToken);
 		HttpResponse<String> managerAdmin = get("/api/v1/admin/unmapped", managerToken);
 		HttpResponse<String> userDashboard = get("/api/v1/dashboard/unmapped", userToken);
 		HttpResponse<String> adminDashboard = get("/api/v1/dashboard/unmapped", adminToken);
 		HttpResponse<String> adminAdmin = get("/api/v1/admin/unmapped", adminToken);
 		HttpResponse<String> activationPost = exchange(HttpMethod.POST,
-			"/api/v1/partner-manager-activations/test-token", null);
+			"/api/v1/partner-manager-activations/test-token", null,
+			"{\"password\":\"safe-password-123\"}");
 		HttpResponse<String> activationGet = get("/api/v1/partner-manager-activations/test-token", null);
 		HttpResponse<String> activationExtra = exchange(HttpMethod.POST,
 			"/api/v1/partner-manager-activations/test-token/extra", null);
@@ -259,6 +260,8 @@ class JwtSecurityIntegrationTest {
 			assertThat(response.getValue().statusCode()).as(response.getKey()).isEqualTo(403);
 			assertJsonError(response.getValue().body(), "COMMON-003");
 		}
+		assertThat(managerImage.statusCode()).isEqualTo(404);
+		assertJsonError(managerImage.body(), "COMMON-004");
 		assertThat(managerDashboard.statusCode()).isEqualTo(404);
 		assertJsonError(managerDashboard.body(), "COMMON-004");
 		assertForbidden(managerAdmin);
@@ -296,11 +299,20 @@ class JwtSecurityIntegrationTest {
 	}
 
 	private HttpResponse<String> exchange(HttpMethod method, String path, String token) throws Exception {
+		return exchange(method, path, token, null);
+	}
+
+	private HttpResponse<String> exchange(HttpMethod method, String path, String token, String body) throws Exception {
 		HttpRequest.Builder request = HttpRequest.newBuilder(URI.create("http://localhost:" + port + path));
 		if (token != null) {
 			request.header("Authorization", "Bearer " + token);
 		}
-		request.method(method.name(), HttpRequest.BodyPublishers.noBody());
+		if (body != null) {
+			request.header("Content-Type", "application/json");
+		}
+		request.method(method.name(), body == null
+			? HttpRequest.BodyPublishers.noBody()
+			: HttpRequest.BodyPublishers.ofString(body));
 		return HttpClient.newHttpClient().send(request.build(), HttpResponse.BodyHandlers.ofString());
 	}
 
