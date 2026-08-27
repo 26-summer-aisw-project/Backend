@@ -13,7 +13,9 @@ public enum ErrorCode {
 	INVALID_STATE("STATE-001", "The resource state does not allow this operation."),
 	DUPLICATE_EMAIL("AUTH-001", "An account with this email already exists."),
 	INVALID_CREDENTIALS("AUTH-002", "Invalid email or password."),
-	INVALID_TOKEN("AUTH-003", "The access token is invalid.");
+	INVALID_TOKEN("AUTH-003", "The access token is invalid."),
+	POINT_IDEMPOTENCY_CONFLICT("POINT-001", "The idempotency key is already in use."),
+	INSUFFICIENT_POINTS("POINT-002", "The point balance is insufficient.");
 
 	private final String code;
 	private final String defaultMessage;

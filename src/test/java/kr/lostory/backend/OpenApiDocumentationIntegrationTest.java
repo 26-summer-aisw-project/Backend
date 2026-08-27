@@ -33,6 +33,9 @@ class OpenApiDocumentationIntegrationTest {
 		"GET /api/v1/lost-reports",
 		"GET /api/v1/lost-reports/{reportId}",
 		"GET /api/v1/lost-reports/{reportId}/candidates",
+		"GET /api/v1/lost-reports/{reportId}/candidates/unlocked",
+		"GET /api/v1/points/balance",
+		"GET /api/v1/points/ledger",
 		"GET /api/v1/users/me",
 		"PATCH /api/v1/admin/lost-centers/{centerId}",
 		"PATCH /api/v1/found-items/{id}/registration",
@@ -47,6 +50,7 @@ class OpenApiDocumentationIntegrationTest {
 		"POST /api/v1/found-items/drafts",
 		"POST /api/v1/found-items/{id}:confirm-handover",
 		"POST /api/v1/lost-reports",
+		"POST /api/v1/lost-reports/{reportId}/candidate-accesses",
 		"POST /api/v1/lost-reports/{reportId}:close",
 		"POST /api/v1/partner-manager-activations/{activationToken}",
 		"PUT /api/v1/found-items/{foundItemId}/image"

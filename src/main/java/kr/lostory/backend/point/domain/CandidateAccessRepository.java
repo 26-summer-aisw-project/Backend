@@ -13,6 +13,10 @@ public interface CandidateAccessRepository extends JpaRepository<CandidateAccess
 	Optional<CandidateAccess> findByReportId(Long reportId);
 
 	@Lock(LockModeType.PESSIMISTIC_WRITE)
+	@Query("select access from CandidateAccess access where access.reportId = :reportId")
+	Optional<CandidateAccess> findByReportIdForUpdate(@Param("reportId") Long reportId);
+
+	@Lock(LockModeType.PESSIMISTIC_WRITE)
 	@Query("select access from CandidateAccess access where access.id = :id")
 	Optional<CandidateAccess> findByIdForUpdate(@Param("id") Long id);
 }

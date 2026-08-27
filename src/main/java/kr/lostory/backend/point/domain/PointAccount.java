@@ -44,6 +44,10 @@ public class PointAccount {
 		balance += ledger.getAmount();
 	}
 
+	public boolean canDebit(int amount) {
+		return amount >= 0 && balance >= amount;
+	}
+
 	@PreUpdate
 	void updateTimestamp() {
 		updatedAt = Instant.now();
