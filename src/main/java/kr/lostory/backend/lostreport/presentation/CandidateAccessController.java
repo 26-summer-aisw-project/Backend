@@ -37,7 +37,7 @@ public class CandidateAccessController {
 	}
 
 	@PostMapping("/{reportId}/candidate-accesses")
-	@Operation(summary = "후보 상세 열람 권한 획득", description = "신고별 최초 요청에서 포인트 한 점을 차감합니다.")
+	@Operation(summary = "후보 상세 열람 권한 획득", description = "신고별 최초 요청에서 포인트 한 점을 차감하고 기존 열람은 유효한 멱등 키로 추가 차감 없이 replayed=true 응답을 재생합니다. 사용한 키를 다른 신고나 사용자가 재사용하면 409 POINT-001입니다.")
 	public CandidateAccessResponse unlock(
 			@PathVariable Long reportId,
 			@AuthenticationPrincipal Jwt jwt,
@@ -47,7 +47,7 @@ public class CandidateAccessController {
 	}
 
 	@GetMapping("/{reportId}/candidates/unlocked")
-	@Operation(summary = "열람 권한을 획득한 후보 상세 조회", description = "소유자에게 허용된 후보 상세만 반환합니다.")
+	@Operation(summary = "열람 권한을 획득한 후보 상세 조회", description = "소유자에게 허용된 후보 상세만 반환하며 thumbnailUrl만 비공개 사진의 단기 서명 URL로 제공합니다.")
 	public ResponseEntity<UnlockedCandidateResponse> candidates(
 			@PathVariable Long reportId,
 			@AuthenticationPrincipal Jwt jwt

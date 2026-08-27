@@ -1,6 +1,6 @@
 # LOSTORY API 계약
 
-**상태:** P0 구현 동기화 · 2026-08-25
+**상태:** P0 21개 + P1 11개 구현 동기화 · 2026-08-27
 **Base path:** `/api/v1`
 **전송 형식:** HTTPS JSON. 사진 생성·교체는 `multipart/form-data`, 사진 조회는 비공개 객체의 5분 유효 서명 URL JSON을 사용한다.
 
@@ -9,7 +9,7 @@
 ## 1. 공통 규칙
 
 - 경로의 ID와 User·센터·습득물·신고·후보 응답 ID, JWT `sub`는 10진 문자열이다. 현재 사진 교체 응답의 이미지 `id`, `foundItemId`만 JSON number다.
-- 가입·로그인만 공개다. 나머지 P0 경로는 Bearer JWT가 필요하다.
+- 회원가입·로그인·파트너 담당자 활성화만 공개다. 나머지 경로는 Bearer JWT가 필요하다.
 - P1 대시보드 경로는 활성 대시보드 관리 계정만, `/admin/*`은 ADMIN만 사용한다.
 - 오류는 `{ "code": "...", "message": "..." }` 형식이다.
 - 존재를 숨겨야 하는 타인 FoundItem·LostReport는 `404`를, 명백한 ADMIN/대시보드 권한 위반은 `403`을 반환한다.
@@ -33,6 +33,28 @@
 
 ```json
 { "code": "REPORT_NOT_OPEN", "message": "The lost report is not open." }
+```
+
+아래 JSON은 HTTP 상태, 오류 코드, 재생 여부를 도구가 직접 읽을 수 있는 정확한 오류 계약이다.
+
+```json
+[
+  { "code": "COMMON-001", "httpStatus": 400, "replay": false, "meaning": "malformed-or-invalid-request" },
+  { "code": "COMMON-002", "httpStatus": 401, "replay": false, "meaning": "authentication-required" },
+  { "code": "COMMON-003", "httpStatus": 403, "replay": false, "meaning": "role-forbidden" },
+  { "code": "COMMON-004", "httpStatus": 404, "replay": false, "meaning": "missing-or-concealed-resource" },
+  { "code": "COMMON-005", "httpStatus": 500, "replay": false, "meaning": "internal-error" },
+  { "code": "MEDIA_NOT_AVAILABLE", "httpStatus": 410, "replay": false, "meaning": "terminal-media-unavailable" },
+  { "code": "VISION-001", "httpStatus": 429, "replay": false, "meaning": "vision-capacity-exceeded" },
+  { "code": "REPORT_NOT_OPEN", "httpStatus": 409, "replay": false, "meaning": "report-not-open" },
+  { "code": "STATE-001", "httpStatus": 409, "replay": false, "meaning": "invalid-state" },
+  { "code": "AUTH-001", "httpStatus": 409, "replay": false, "meaning": "duplicate-email" },
+  { "code": "AUTH-002", "httpStatus": 401, "replay": false, "meaning": "invalid-credentials" },
+  { "code": "AUTH-003", "httpStatus": 401, "replay": false, "meaning": "invalid-activation-token" },
+  { "code": "POINT-001", "httpStatus": 409, "replay": false, "meaning": "idempotency-key-conflict" },
+  { "code": "POINT-002", "httpStatus": 409, "replay": false, "meaning": "insufficient-points" },
+  { "code": null, "httpStatus": 200, "replay": true, "meaning": "same-report-existing-access-with-valid-key" }
+]
 ```
 
 ### 1.3 FoundItem 응답 범위
@@ -101,7 +123,7 @@ P0에는 모든 FoundItem 필드를 한 번에 반환하는 공통 응답이 없
 
 | 위치 | 필드 | 설명 |
 |---|---|---|
-| Query | `page`, `pageSize`, `q` | 선택. 기본 `1`, `20`, 검색어 |
+| Query | `page`, `pageSize`, `q` | 선택. 기본 `1`, `20`, 검색어. `page >= 1`, `1 <= pageSize <= 100` |
 
 **응답 payload — 200 OK**
 
@@ -248,7 +270,7 @@ Header: `Cache-Control: no-store`
 
 | 위치 | 필드 | 설명 |
 |---|---|---|
-| Query | `page`, `pageSize`, `status` | 선택. 상태 필터는 P0 상태값만 허용 |
+| Query | `page`, `pageSize`, `status` | 선택. 기본 `1`, `20`; `page >= 1`, `1 <= pageSize <= 100`; 상태 필터는 P0 상태값만 허용 |
 
 **응답 payload — 200 OK**
 
@@ -381,7 +403,7 @@ P1 센터 수락 전에는 `PATCH /found-items/{itemId}/registration`으로 인�
 
 | 위치 | 필드 | 설명 |
 |---|---|---|
-| Query | `page`, `pageSize`, `status` | 선택 |
+| Query | `page`, `pageSize`, `status` | 선택. 기본 `1`, `20`; `page >= 1`, `1 <= pageSize <= 100` |
 
 **응답 payload — 200 OK**
 
@@ -403,7 +425,7 @@ P1 센터 수락 전에는 `PATCH /found-items/{itemId}/registration`으로 인�
 **응답 payload — 200 OK**
 
 ```json
-{ "id": "900", "status": "OPEN", "effectiveSearchRadiusMeters": 1000, "radiusPolicyVersion": "p0-radius-v1", "centerGuidance": [{ "id": "20", "name": "캠퍼스 분실물 센터", "contactPhone": "02-000-0000", "distanceMeters": 210.0 }], "candidatesStale": false }
+{ "id": "900", "status": "OPEN", "effectiveSearchRadiusMeters": 1000, "radiusPolicyVersion": "p0-radius-v1", "centerGuidance": [{ "id": "20", "name": "캠퍼스 분실물 센터", "contactPhone": "02-000-0000", "distanceMeters": 210.0 }], "candidatesStale": false, "expiredAt": "2026-09-06T09:00:00Z", "createdAt": "2026-08-23T09:00:00Z", "updatedAt": "2026-08-23T09:00:00Z" }
 ```
 
 #### update-lost-report
@@ -485,11 +507,7 @@ P1 센터 수락 전에는 `PATCH /found-items/{itemId}/registration`으로 인�
 
 - ADMIN이 파트너십을 승인하고 별도 채널 전달용 일회성 활성화 링크를 발급한다.
 
-**요청 payload**
-
-```json
-{}
-```
+요청 본문 없이 호출한다.
 
 **응답 payload — 200 OK**
 
@@ -502,7 +520,7 @@ P1 센터 수락 전에는 `PATCH /found-items/{itemId}/registration`으로 인�
 #### activate-partner-manager
 > POST `/partner-manager-activations/{activationToken}`
 
-- 새 관리 계정이 비밀번호를 설정하고 대시보드 전용으로 활성화된다.
+- 공개 경로에서 새 관리 계정이 비밀번호를 설정하고 대시보드 전용으로 활성화된다. 토큰은 24시간·1회 사용이며 성공·실패 응답이나 로그에 다시 노출하지 않는다.
 
 **요청 payload**
 
@@ -599,7 +617,7 @@ P1 센터 수락 전에는 `PATCH /found-items/{itemId}/registration`으로 인�
 
 | 위치 | 필드 | 설명 |
 |---|---|---|
-| Header | `Idempotency-Key` | 필수. 요청당 고유 키 |
+| Header | `Idempotency-Key` | 필수. 소문자 표준 UUID(v1~v5). 같은 신고의 기존 열람은 같은 키 또는 새 유효 키 모두 최초 결과를 `replayed: true`로 재생하며 추가 차감하지 않는다. 이미 사용한 키를 다른 신고나 다른 사용자가 재사용하면 `409 POINT-001`이다. |
 
 **응답 payload — 200 OK**
 
@@ -663,7 +681,7 @@ P1 센터 수락 전에는 `PATCH /found-items/{itemId}/registration`으로 인�
 
 | 위치 | 필드 | 설명 |
 |---|---|---|
-| Query | `page`, `pageSize` | 선택 |
+| Query | `page`, `pageSize` | 선택. 기본 `1`, `20`; `page >= 1`, `1 <= pageSize <= 100` |
 
 **응답 payload — 200 OK**
 
@@ -681,7 +699,7 @@ P1 센터 수락 전에는 `PATCH /found-items/{itemId}/registration`으로 인�
 
 ## 8. 폐기된 P0 경로
 
-아래 이전 경로는 호환 별칭이 아니며 `404`를 반환한다. 새 클라이언트는 호출하지 않는다.
+아래 이전 경로는 호환 별칭이 아니다. 인증이 필요한 폐기 경로는 유효한 Bearer 인증 뒤 `404 COMMON-004`를 반환하며, 익명 호출은 공통 보안 경계에서 먼저 `401 COMMON-002`가 될 수 있다. 새 클라이언트는 호출하지 않는다.
 
 | Method | 폐기 경로 | 대체 경로 |
 |---|---|---|

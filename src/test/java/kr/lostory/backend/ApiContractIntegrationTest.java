@@ -23,7 +23,7 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 @ActiveProfiles("test")
-@Import(PostgresTestContainerConfig.class)
+@Import({PostgresTestContainerConfig.class, FoundItemObjectStorageIntegrationTest.StorageTestConfig.class})
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class ApiContractIntegrationTest {
 
@@ -32,6 +32,59 @@ class ApiContractIntegrationTest {
 	@Autowired UserRepository users;
 	@Autowired JdbcTemplate jdbc;
 	private final ObjectMapper json = new ObjectMapper();
+	private final HttpClient httpClient = HttpClient.newHttpClient();
+
+	@Test
+	void everyMatrixRowHasAValidRoleAwareRealHttpSuccessFixture() throws Exception {
+		assertThat(ApiContractMatrix.OPERATIONS).hasSize(32);
+		ApiContractSuccessFixture fixtures = new ApiContractSuccessFixture(port, tokens, users, jdbc, json);
+		ApiContractSuccessFixture.Context context = fixtures.seed();
+		for (ApiContractMatrix.Operation row : ApiContractMatrix.OPERATIONS) {
+			HttpRequest request = fixtures.request(row, context);
+			HttpResponse<String> response = httpClient.send(request,
+				HttpResponse.BodyHandlers.ofString());
+			assertThat(response.statusCode()).as(row.key()).isEqualTo(row.successStatus());
+			JsonNode body = json.readTree(response.body());
+			assertThat(body.propertyNames()).as(row.key() + " success fields")
+				.containsExactlyInAnyOrderElementsOf(row.successFields());
+			assertFlagOutputs(row, body);
+			fixtures.capture(row, response, context);
+			for (String decimalParameter : row.decimalPathParameters()) {
+				HttpResponse<String> malformed = send(fixtures.malformedDecimal(row, request, decimalParameter));
+				assertError(malformed, 400, "COMMON-001");
+				System.out.println("MATRIX_DECIMAL_BOUNDARY key=" + row.key() + " parameter="
+					+ decimalParameter + " valid=<DECIMAL_ID> malformed=400");
+			}
+			System.out.println("MATRIX_SUCCESS key=" + row.key() + " role=" + row.security()
+				+ " status=" + response.statusCode() + " fields=" + new java.util.TreeSet<>(row.successFields()));
+		}
+		for (ApiContractMatrix.Security security : List.of(
+			ApiContractMatrix.Security.USER, ApiContractMatrix.Security.ADMIN,
+			ApiContractMatrix.Security.CENTER_MANAGER)) {
+			HttpResponse<String> denied = httpClient.send(fixtures.wrongRole(security, context),
+				HttpResponse.BodyHandlers.ofString());
+			assertError(denied, 403, "COMMON-003");
+		}
+		for (ApiContractMatrix.Operation row : ApiContractMatrix.OPERATIONS) {
+			if (row.flags().contains(ApiContractMatrix.Flag.PAGE)) {
+				assertError(send(fixtures.invalidPage(row, context)), 400, "COMMON-001");
+			}
+		}
+		assertError(send(fixtures.invalidIdempotency(context)), 400, "COMMON-001");
+		assertError(send(fixtures.nonEmptyCloseBody(context)), 400, "COMMON-001");
+		assertError(send(fixtures.malformedJson()), 400, "COMMON-001");
+		assertError(send(fixtures.missingMultipartImage(context)), 400, "COMMON-001");
+
+		ApiContractMatrix.Operation replayRow = ApiContractMatrix.OPERATIONS.stream()
+			.filter(row -> row.flags().contains(ApiContractMatrix.Flag.REPLAY)).findFirst().orElseThrow();
+		HttpResponse<String> replay = send(fixtures.replay(context));
+		assertThat(replay.statusCode()).isEqualTo(replayRow.successStatus());
+		JsonNode replayBody = json.readTree(replay.body());
+		assertThat(replayBody.propertyNames()).containsExactlyInAnyOrderElementsOf(replayRow.successFields());
+		assertThat(replayBody.path("replayed").asBoolean()).isTrue();
+		System.out.println("MATRIX_BOUNDARIES pageRows=4 decimalRows=16 idempotency=400 emptyJson=400"
+			+ " malformedJson=400 multipart=400 replayed=true wrongRoles=[USER,ADMIN,CENTER_MANAGER]");
+	}
 
 	@Test
 	void candidateOwnershipConcealsForeignUserAndAdminWithExactError() throws Exception {
@@ -79,6 +132,35 @@ class ApiContractIntegrationTest {
 		return HttpClient.newHttpClient().send(HttpRequest.newBuilder(URI.create(
 				"http://localhost:" + port + "/api/v1/lost-reports/" + reportId + "/candidates"))
 				.header("Authorization", "Bearer " + token).GET().build(), HttpResponse.BodyHandlers.ofString());
+	}
+
+	private HttpResponse<String> send(HttpRequest request) throws Exception {
+		return httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+	}
+
+	private void assertFlagOutputs(ApiContractMatrix.Operation row, JsonNode body) {
+		assertDecimalIds(body);
+		if (row.flags().contains(ApiContractMatrix.Flag.SIGNED_URL) && body.has("url")) {
+			assertThat(body.propertyNames()).containsExactlyInAnyOrder("url", "expiresAt");
+			assertThat(body.toString()).doesNotContain("objectKey", "storagePath", "imageBytes");
+		}
+		if (row.flags().contains(ApiContractMatrix.Flag.PRIVATE_NON_PERSISTENT)) {
+			assertThat(body.toString()).doesNotContain("privateFeatures", "request-only-contract-check");
+		}
+	}
+
+	private void assertDecimalIds(JsonNode node) {
+		if (node.isObject()) {
+			node.properties().forEach(entry -> {
+				if ((entry.getKey().equals("id") || entry.getKey().endsWith("Id"))
+						&& entry.getValue().isTextual() && !entry.getValue().isNull()) {
+					assertThat(entry.getValue().asString()).matches("[1-9][0-9]*");
+				}
+				assertDecimalIds(entry.getValue());
+			});
+		} else if (node.isArray()) {
+			node.forEach(this::assertDecimalIds);
+		}
 	}
 
 	private void assertError(HttpResponse<String> response, int status, String code) throws Exception {
