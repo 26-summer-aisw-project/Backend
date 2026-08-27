@@ -16,6 +16,7 @@ import kr.lostory.backend.founditem.application.FoundItemLifecycleCleanupService
 import kr.lostory.backend.founditem.application.VisionJobWorker;
 import kr.lostory.backend.founditem.application.VisionProvider;
 import kr.lostory.backend.founditem.application.VisionProviderException;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -61,10 +62,16 @@ class P0EndToEndHttpIntegrationTest {
         jdbc.update("DELETE FROM object_deletion_outbox");
         jdbc.update("DELETE FROM found_item_images");
         jdbc.update("DELETE FROM item_features");
+        jdbc.update("DELETE FROM center_handovers");
         jdbc.update("DELETE FROM found_items");
         jdbc.update("DELETE FROM lost_centers WHERE source_key LIKE 'p0-e2e:%'");
         storage.reset();
         clock.set(NOW);
+    }
+
+    @AfterEach
+    void cleanupFixture() {
+        reset();
     }
 
     @Test
