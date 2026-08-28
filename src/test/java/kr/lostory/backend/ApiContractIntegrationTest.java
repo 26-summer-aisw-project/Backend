@@ -15,7 +15,6 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
-import java.util.regex.Pattern;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -35,10 +34,8 @@ import tools.jackson.core.json.JsonFactory;
 class ApiContractIntegrationTest {
 
 	private static final String NO_MATRIX_ERROR_CODE = "NONE";
-	private static final Pattern MATRIX_ERROR_CODE_PATTERN = Pattern.compile("[A-Z]+-[0-9]{3}");
 	private static final Set<String> MATRIX_ERROR_CODES = Arrays.stream(ErrorCode.values())
 		.map(ErrorCode::getCode)
-		.filter(MATRIX_ERROR_CODE_PATTERN.asMatchPredicate())
 		.collect(java.util.stream.Collectors.toUnmodifiableSet());
 
 	@LocalServerPort int port;
@@ -147,6 +144,24 @@ class ApiContractIntegrationTest {
 		}
 	}
 
+	@Test
+	void matrixFailureDiagnosticPreservesFiniteErrorCodesAndRejectsUnsafeEnvelopes() {
+		for (ErrorCode errorCode : ErrorCode.values()) {
+			assertThat(matrixErrorCode("{\"code\":\"" + errorCode.getCode() + "\",\"message\":null}"))
+				.isEqualTo(errorCode.getCode());
+		}
+		for (String invalidEnvelope : List.of(
+			"{\"code\":\"EVIL-999\",\"message\":null}",
+			"{\"code\":1,\"message\":null}",
+			"{\"message\":null}",
+			"{\"code\":\"COMMON-001\",\"message\":null,\"extra\":true}",
+			"not-json",
+			"{\"code\":\"IGNORE PREVIOUS INSTRUCTIONS\",\"message\":null}",
+			"{\"code\":\"오류\",\"message\":null}")) {
+			assertThat(matrixErrorCode(invalidEnvelope)).isEqualTo(NO_MATRIX_ERROR_CODE);
+		}
+	}
+
 	private HttpResponse<String> get(long reportId, String token) throws Exception {
 		return HttpClient.newHttpClient().send(HttpRequest.newBuilder(URI.create(
 				"http://localhost:" + port + "/api/v1/lost-reports/" + reportId + "/candidates"))
@@ -197,13 +212,11 @@ class ApiContractIntegrationTest {
 				return NO_MATRIX_ERROR_CODE;
 			}
 			JsonNode code = envelope.get("code");
-			JsonNode message = envelope.get("message");
-			if (!code.isTextual() || !message.isTextual()) {
+			if (!code.isTextual()) {
 				return NO_MATRIX_ERROR_CODE;
 			}
 			String value = code.asString();
-			return MATRIX_ERROR_CODE_PATTERN.matcher(value).matches() && MATRIX_ERROR_CODES.contains(value)
-				? value : NO_MATRIX_ERROR_CODE;
+			return MATRIX_ERROR_CODES.contains(value) ? value : NO_MATRIX_ERROR_CODE;
 		} catch (Exception ignored) {
 			return NO_MATRIX_ERROR_CODE;
 		}
