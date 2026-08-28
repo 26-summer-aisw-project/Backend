@@ -22,12 +22,14 @@ public class CandidateAccessService {
 	private final CandidateAccessLocks locks;
 	private final CandidateAccessRecords records;
 	private final LostReportLifecycleCleanupService lifecycle;
+	private final PointPolicy policy;
 
 	public CandidateAccessService(CandidateAccessLocks locks, CandidateAccessRecords records,
-			LostReportLifecycleCleanupService lifecycle) {
+			LostReportLifecycleCleanupService lifecycle, PointPolicy policy) {
 		this.locks = locks;
 		this.records = records;
 		this.lifecycle = lifecycle;
+		this.policy = policy;
 	}
 
 	@Transactional
@@ -60,10 +62,10 @@ public class CandidateAccessService {
 			records.saveReceipt(idempotencyKey, access);
 			return response(access, account, true);
 		}
-		if (!account.canDebit(PointPolicy.CANDIDATE_ACCESS_COST)) {
+		if (!account.canDebit(policy.candidateAccessCost())) {
 			throw new LostoryException(ErrorCode.INSUFFICIENT_POINTS);
 		}
-		PointLedger debit = records.debit(requesterId, reportId, idempotencyKey);
+		PointLedger debit = records.debit(requesterId, reportId, idempotencyKey, policy.candidateAccessCost());
 		locks.apply(account, debit);
 		CandidateAccess created = locks.create(reportId, requesterId, debit);
 		records.saveReceipt(idempotencyKey, created);
@@ -72,6 +74,6 @@ public class CandidateAccessService {
 
 	private CandidateAccessResponse response(CandidateAccess access, PointAccount account, boolean replayed) {
 		return new CandidateAccessResponse(access.getReportId().toString(), access.getUnlockedAt(),
-				PointPolicy.CANDIDATE_ACCESS_COST, account.getBalance(), replayed);
+				policy.candidateAccessCost(), account.getBalance(), replayed);
 	}
 }

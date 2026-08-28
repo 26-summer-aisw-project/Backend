@@ -36,7 +36,10 @@ import tools.jackson.databind.ObjectMapper;
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties = {
                 "partner.activation-base-url=https://app.example/partner-activation",
-                "vision.worker-initial-delay=PT1H"
+                "vision.worker-initial-delay=PT1H",
+                "POINT_SIGNUP_GRANT=12",
+                "POINT_CANDIDATE_ACCESS_COST=2",
+                "POINT_CENTER_CONFIRMED_RETURN_REWARD=7"
         })
 // allow: SIZE_OK — one required HTTP narrative and its local request/assertion helpers.
 class P1EndToEndHttpIntegrationTest {
@@ -93,8 +96,8 @@ class P1EndToEndHttpIntegrationTest {
         // Given: finder and report owner receive signup points through public HTTP.
         Identity finder = signupAndLogin("finder");
         Identity owner = signupAndLogin("owner");
-        assertBalance(finder.token(), 10);
-        assertBalance(owner.token(), 10);
+        assertBalance(finder.token(), 12);
+        assertBalance(owner.token(), 12);
 
         User admin = users.saveAndFlush(new User(
                 UUID.randomUUID() + "@task10-admin.invalid", "hash", "Task10 Admin", UserRole.ADMIN));
@@ -153,15 +156,17 @@ class P1EndToEndHttpIntegrationTest {
         HttpResponse<String> replayUnlock = candidateAccess(reportId, owner.token(), key);
         JsonNode firstUnlockBody = expect(firstUnlock, 200);
         JsonNode replayUnlockBody = expect(replayUnlock, 200);
-        assertThat(firstUnlockBody.get("remainingBalance").asInt()).isEqualTo(9);
+        assertThat(firstUnlockBody.get("debitedPoints").asInt()).isEqualTo(2);
+        assertThat(firstUnlockBody.get("remainingBalance").asInt()).isEqualTo(10);
         assertThat(firstUnlockBody.get("replayed").asBoolean()).isFalse();
-        assertThat(replayUnlockBody.get("remainingBalance").asInt()).isEqualTo(9);
+        assertThat(replayUnlockBody.get("debitedPoints").asInt()).isEqualTo(2);
+        assertThat(replayUnlockBody.get("remainingBalance").asInt()).isEqualTo(10);
         assertThat(replayUnlockBody.get("replayed").asBoolean()).isTrue();
         assertError(candidateAccess(reportId, owner.token(), "not-a-uuid"), 400, "COMMON-001");
         assertThat(jdbc.queryForObject("SELECT count(*) FROM candidate_accesses WHERE report_id=?",
                 Integer.class, Long.valueOf(reportId))).isOne();
         assertThat(jdbc.queryForObject("SELECT count(*) FROM point_ledger WHERE user_id=? "
-                        + "AND entry_type='CANDIDATE_ACCESS_DEBIT' AND amount=-1",
+                        + "AND entry_type='CANDIDATE_ACCESS_DEBIT' AND amount=-2",
                 Integer.class, owner.id())).isOne();
 
         HttpResponse<String> unlockedResponse = get(
@@ -194,19 +199,19 @@ class P1EndToEndHttpIntegrationTest {
         JsonNode returnedBody = expect(returned, 201);
         assertThat(expect(returnReplay, 201)).isEqualTo(returnedBody);
         assertThat(returnedBody.get("status").asString()).isEqualTo("RETURNED");
-        assertThat(returnedBody.get("rewardGranted").asInt()).isEqualTo(5);
+        assertThat(returnedBody.get("rewardGranted").asInt()).isEqualTo(7);
 
         // Then: balances/ledgers converge, returned item disappears, and report stays open.
-        assertBalance(finder.token(), 15);
-        assertBalance(owner.token(), 9);
+        assertBalance(finder.token(), 19);
+        assertBalance(owner.token(), 10);
         JsonNode finderLedger = expect(get("/api/v1/points/ledger?page=1&pageSize=20", finder.token()), 200);
         JsonNode ownerLedger = expect(get("/api/v1/points/ledger?page=1&pageSize=20", owner.token()), 200);
-        assertLedger(finderLedger, Set.of("SIGNUP_GRANT:10", "CENTER_RETURN_REWARD:5"));
-        assertLedger(ownerLedger, Set.of("SIGNUP_GRANT:10", "CANDIDATE_ACCESS_DEBIT:-1"));
+        assertLedger(finderLedger, Set.of("SIGNUP_GRANT:12", "CENTER_RETURN_REWARD:7"));
+        assertLedger(ownerLedger, Set.of("SIGNUP_GRANT:12", "CANDIDATE_ACCESS_DEBIT:-2"));
         assertThat(jdbc.queryForObject("SELECT count(*) FROM return_records WHERE found_item_id=? AND lost_report_id=?",
                 Integer.class, Long.valueOf(itemId), Long.valueOf(reportId))).isOne();
         assertThat(jdbc.queryForObject("SELECT count(*) FROM point_ledger WHERE user_id=? "
-                        + "AND entry_type='CENTER_RETURN_REWARD' AND amount=5",
+                        + "AND entry_type='CENTER_RETURN_REWARD' AND amount=7",
                 Integer.class, finder.id())).isOne();
 
         HttpResponse<String> afterReturnResponse = get(
@@ -220,10 +225,12 @@ class P1EndToEndHttpIntegrationTest {
                 unlocked.toString(), returned.body(), returnReplay.body(), afterReturn.toString(), finalReport.toString());
         assertThat(publicBodies).doesNotContain(PRIVATE_FEATURE, managerEmail, activationToken, activationUrl,
                 "finderId", "reporterId", "objectKey", "storageKey", "scoreBreakdown", "idempotencyKey");
-        System.out.println("P1_E2E_HTTP signup=201/201 initial-balance=10/10 draft=201 vision=READY "
+        System.out.println("R6_POINT_POLICY_HTTP_OBSERVABLE signup=12/12 debit=2 reward=7 "
+                + "candidate-response=2/10 return-response=7 ledger=-2/+7 staging-balance-mutation=0 "
+                + "draft=201 vision=READY "
                 + "partnership=201/200 activation=200 handover=200/200 report=201 candidates=200 "
                 + "unlock=200/200 malformed=400 thumbnail=signed/no-store/ttl-300 "
-                + "return=201/201 final-balance=15/9 report=OPEN candidates-after-return=0 privacy=public-only");
+                + "return=201/201 final-balance=19/10 report=OPEN candidates-after-return=0 privacy=public-only");
     }
 
     private Identity signupAndLogin(String label) throws Exception {

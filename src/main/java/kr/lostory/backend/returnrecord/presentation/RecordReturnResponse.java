@@ -9,12 +9,12 @@ public record RecordReturnResponse(
         String status,
         int rewardGranted
 ) {
-    public static RecordReturnResponse from(ReturnRecord record) {
+    public static RecordReturnResponse from(ReturnRecord record, int rewardGranted) {
         return new RecordReturnResponse(
                 record.getId().toString(),
                 record.getFoundItemId().toString(),
                 record.getLostReportId().toString(),
                 "RETURNED",
-                5);
+                rewardGranted);
     }
 }

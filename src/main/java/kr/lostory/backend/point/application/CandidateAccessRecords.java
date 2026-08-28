@@ -31,8 +31,8 @@ class CandidateAccessRecords {
 		return ledger.findByIdempotencyKey(key).isPresent();
 	}
 
-	PointLedger debit(Long userId, Long reportId, UUID key) {
-		return ledger.saveAndFlush(PointLedger.candidateAccessDebit(userId, reportId, key));
+	PointLedger debit(Long userId, Long reportId, UUID key, int cost) {
+		return ledger.saveAndFlush(PointLedger.candidateAccessDebit(userId, reportId, key, cost));
 	}
 
 	void saveReceipt(UUID key, CandidateAccess access) {

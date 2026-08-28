@@ -59,15 +59,15 @@ public class PointLedger {
 		this.createdAt = Instant.now();
 	}
 
-	public static PointLedger signupGrant(Long userId, UUID idempotencyKey) {
-		return new PointLedger(userId, PointEntryType.SIGNUP_GRANT, PointPolicy.SIGNUP_GRANT, idempotencyKey, null);
+	public static PointLedger signupGrant(Long userId, UUID idempotencyKey, int amount) {
+		return new PointLedger(userId, PointEntryType.SIGNUP_GRANT, amount, idempotencyKey, null);
 	}
 
-	public static PointLedger candidateAccessDebit(Long userId, Long reportId, UUID idempotencyKey) {
+	public static PointLedger candidateAccessDebit(Long userId, Long reportId, UUID idempotencyKey, int cost) {
 		PointLedger ledger = new PointLedger(
 			userId,
 			PointEntryType.CANDIDATE_ACCESS_DEBIT,
-			-PointPolicy.CANDIDATE_ACCESS_COST,
+			-cost,
 			idempotencyKey,
 			null
 		);
@@ -76,11 +76,11 @@ public class PointLedger {
 		return ledger;
 	}
 
-	public static PointLedger centerReturnReward(Long userId, Long returnId, UUID idempotencyKey) {
+	public static PointLedger centerReturnReward(Long userId, Long returnId, UUID idempotencyKey, int amount) {
 		PointLedger ledger = new PointLedger(
 			userId,
 			PointEntryType.CENTER_RETURN_REWARD,
-			PointPolicy.CENTER_CONFIRMED_RETURN_REWARD,
+			amount,
 			idempotencyKey,
 			null
 		);

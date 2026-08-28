@@ -7,6 +7,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 
 import org.flywaydb.core.Flyway;
+import org.flywaydb.core.api.callback.BaseCallback;
+import org.flywaydb.core.api.callback.Context;
+import org.flywaydb.core.api.callback.Event;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -15,6 +18,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
+import kr.lostory.backend.config.PointDebitCompatibilityCallback;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -38,6 +42,81 @@ class PointFoundationMigrationIntegrationTest {
 	@AfterAll
 	static void stopPostgres() {
 		POSTGRES.stop();
+	}
+
+	@Test
+	void v27VariableDebitSurvivesV28CompatibilityAndV33WithoutChangingBalance() {
+		// Given
+		migrateToV27();
+		insertUsersAndLegacyLedger();
+		jdbc.update("UPDATE point_ledger SET amount = -2 WHERE id = 203");
+		jdbc.update("UPDATE users SET status = 'BLOCKED' WHERE id = 101");
+		int balanceBefore = jdbc.queryForObject(
+			"SELECT balance FROM point_accounts WHERE user_id = 101", Integer.class);
+
+		// When
+		migrateLatest();
+
+		// Then
+		assertThat(jdbc.queryForObject("SELECT amount FROM point_ledger WHERE id = 203", Integer.class))
+			.isEqualTo(-2);
+		assertThat(jdbc.queryForObject(
+			"SELECT balance FROM point_accounts WHERE user_id = 101", Integer.class)).isEqualTo(balanceBefore);
+		assertThat(jdbc.queryForObject(
+			"SELECT to_regclass('public.point_ledger_v28_debit_compatibility')", String.class)).isNull();
+		assertThat(jdbc.queryForObject(
+			"SELECT count(*) FROM flyway_schema_history WHERE version = '33' AND success", Integer.class)).isOne();
+		System.out.println("POINT_V33_COMPATIBILITY_OBSERVABLE ledger=203 amount=-2 balance=3 staging=absent");
+	}
+
+	@Test
+	void pendingV28InterruptionResumesWithoutRestagingOrBalanceMutation() {
+		// Given
+		migrateToV27();
+		insertUsersAndLegacyLedger();
+		jdbc.update("UPDATE point_ledger SET amount = -2 WHERE id = 203");
+		Flyway interrupted = Flyway.configure()
+			.dataSource(dataSource)
+			.callbacks(new PointDebitCompatibilityCallback(), new InterruptBeforeV28())
+			.load();
+
+		// When
+		assertThatThrownBy(interrupted::migrate).hasMessageContaining("test interruption before V28");
+
+		// Then
+		assertThat(jdbc.queryForObject("SELECT amount FROM point_ledger WHERE id = 203", Integer.class))
+			.isEqualTo(-1);
+		assertThat(jdbc.queryForObject(
+			"SELECT original_amount FROM point_ledger_v28_debit_compatibility WHERE ledger_id = 203",
+			Integer.class)).isEqualTo(-2);
+		assertThat(jdbc.queryForObject(
+			"SELECT balance FROM point_accounts WHERE user_id = 101", Integer.class)).isEqualTo(3);
+
+		migrateLatest();
+		migrateLatest();
+		assertThat(jdbc.queryForObject("SELECT amount FROM point_ledger WHERE id = 203", Integer.class))
+			.isEqualTo(-2);
+		assertThat(jdbc.queryForObject(
+			"SELECT to_regclass('public.point_ledger_v28_debit_compatibility')", String.class)).isNull();
+		assertThat(jdbc.queryForObject(
+			"SELECT balance FROM point_accounts WHERE user_id = 101", Integer.class)).isEqualTo(13);
+		System.out.println("POINT_V28_RESUME_OBSERVABLE interrupted=-1 staged=-2 resumed=-2 balance=13 rerun=no-op");
+	}
+
+	@Test
+	void alreadyV32DatabaseAppliesV33WithoutCompatibilityResidue() {
+		// Given
+		migrateCleanTo("32");
+
+		// When
+		migrateLatest();
+
+		// Then
+		assertThat(jdbc.queryForObject(
+			"SELECT count(*) FROM flyway_schema_history WHERE version = '33' AND success", Integer.class)).isOne();
+		assertThat(jdbc.queryForObject(
+			"SELECT to_regclass('public.point_ledger_v28_debit_compatibility')", String.class)).isNull();
+		System.out.println("POINT_V32_TO_V33_OBSERVABLE version=33 staging=absent");
 	}
 
 	@Test
@@ -136,10 +215,10 @@ class PointFoundationMigrationIntegrationTest {
 
 		// Then
 		assertThat(jdbc.queryForList(
-			"SELECT version FROM flyway_schema_history WHERE version IN ('27', '28', '29', '30', '31', '32') "
+			"SELECT version FROM flyway_schema_history WHERE version IN ('27', '28', '29', '30', '31', '32', '33') "
 				+ "ORDER BY installed_rank",
 			String.class
-		)).containsExactly("27", "28", "29", "30", "31", "32");
+		)).containsExactly("27", "28", "29", "30", "31", "32", "33");
 		assertThat(jdbc.queryForObject(
 			"SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name IN "
 				+ "('point_accounts', 'point_ledger', 'candidate_access_idempotency_receipts', "
@@ -153,7 +232,10 @@ class PointFoundationMigrationIntegrationTest {
 				+ "+ (SELECT count(*) FROM return_records)",
 			Integer.class
 		)).isZero();
-		System.out.println("POINT_V26_EMPTY_OBSERVABLE versions=27,28,29,30,31,32 required-tables=7 fabricated-rows=0");
+		assertThat(jdbc.queryForObject(
+			"SELECT to_regclass('public.point_ledger_v28_debit_compatibility')", String.class)).isNull();
+		System.out.println("POINT_V26_EMPTY_OBSERVABLE versions=27,28,29,30,31,32,33 required-tables=7 "
+			+ "fabricated-rows=0 staging=absent");
 	}
 
 	@Test
@@ -295,7 +377,7 @@ class PointFoundationMigrationIntegrationTest {
 		// Given
 		migrateToV26();
 		migrateLatest();
-		writeMigration(migrationDirectory, "V33__test_failure.sql", """
+		writeMigration(migrationDirectory, "V34__test_failure.sql", """
 			CREATE TABLE migration_failure_probe (id BIGINT PRIMARY KEY);
 			INSERT INTO migration_failure_probe (id) VALUES (1);
 			INSERT INTO vision_daily_admissions (admission_date, reserved_count) VALUES (DATE '2099-01-01', 1);
@@ -311,11 +393,11 @@ class PointFoundationMigrationIntegrationTest {
 			Integer.class
 		)).isZero();
 		assertThat(jdbc.queryForObject(
-			"SELECT count(*) FROM flyway_schema_history WHERE version = '33'",
+			"SELECT count(*) FROM flyway_schema_history WHERE version = '34'",
 			Integer.class
 		)).isZero();
 
-		writeMigration(migrationDirectory, "V33__test_failure.sql", """
+		writeMigration(migrationDirectory, "V34__test_failure.sql", """
 			CREATE TABLE migration_recovery_probe (id BIGINT PRIMARY KEY);
 			INSERT INTO migration_recovery_probe (id) VALUES (1);
 			""");
@@ -324,10 +406,10 @@ class PointFoundationMigrationIntegrationTest {
 
 		assertThat(jdbc.queryForObject("SELECT count(*) FROM migration_recovery_probe", Integer.class)).isOne();
 		assertThat(jdbc.queryForObject(
-			"SELECT count(*) FROM flyway_schema_history WHERE version = '33' AND success",
+			"SELECT count(*) FROM flyway_schema_history WHERE version = '34' AND success",
 			Integer.class
 		)).isOne();
-		System.out.println("POINT_FAILURE_RECOVERY_OBSERVABLE residue=0 recovered-version=33 applied=1 rerun=no-op");
+		System.out.println("POINT_FAILURE_RECOVERY_OBSERVABLE residue=0 recovered-version=34 applied=1 rerun=no-op");
 	}
 
 	private static void migrateToV27() {
@@ -353,15 +435,29 @@ class PointFoundationMigrationIntegrationTest {
 	}
 
 	private static void migrateLatest() {
-		Flyway.configure().dataSource(dataSource).load().migrate();
+		Flyway.configure().dataSource(dataSource).callbacks(new PointDebitCompatibilityCallback()).load().migrate();
 	}
 
 	private static void migrateLatestWith(Path migrationDirectory) {
 		Flyway.configure()
 			.dataSource(dataSource)
 			.locations("classpath:db/migration", "filesystem:" + migrationDirectory.toAbsolutePath())
+			.callbacks(new PointDebitCompatibilityCallback())
 			.load()
 			.migrate();
+	}
+
+	private static final class InterruptBeforeV28 extends BaseCallback {
+		@Override
+		public boolean supports(Event event, Context context) {
+			return event == Event.BEFORE_EACH_MIGRATE
+				&& context.getMigrationInfo().getVersion().getVersion().equals("28");
+		}
+
+		@Override
+		public void handle(Event event, Context context) {
+			throw new IllegalStateException("test interruption before V28");
+		}
 	}
 
 	private static void writeMigration(Path directory, String filename, String sql) throws IOException {

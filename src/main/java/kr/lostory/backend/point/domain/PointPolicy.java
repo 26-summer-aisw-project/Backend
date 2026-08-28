@@ -1,11 +1,14 @@
 package kr.lostory.backend.point.domain;
 
-public final class PointPolicy {
+import jakarta.validation.constraints.Positive;
+import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.validation.annotation.Validated;
 
-	public static final int SIGNUP_GRANT = 10;
-	public static final int CANDIDATE_ACCESS_COST = 1;
-	public static final int CENTER_CONFIRMED_RETURN_REWARD = 5;
-
-	private PointPolicy() {
-	}
+@Validated
+@ConfigurationProperties("point")
+public record PointPolicy(
+		@Positive int signupGrant,
+		@Positive int candidateAccessCost,
+		@Positive int centerConfirmedReturnReward
+) {
 }

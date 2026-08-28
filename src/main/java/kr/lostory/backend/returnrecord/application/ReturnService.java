@@ -27,6 +27,7 @@ import kr.lostory.backend.point.domain.PointAccount;
 import kr.lostory.backend.point.domain.PointAccountRepository;
 import kr.lostory.backend.point.domain.PointLedger;
 import kr.lostory.backend.point.domain.PointLedgerRepository;
+import kr.lostory.backend.point.domain.PointPolicy;
 import kr.lostory.backend.returnrecord.domain.ReturnRecord;
 import kr.lostory.backend.returnrecord.domain.ReturnRecordRepository;
 import kr.lostory.backend.returnrecord.presentation.RecordReturnResponse;
@@ -46,6 +47,7 @@ public class ReturnService {
     private final PointLedgerRepository ledger;
     private final P0AuditService audit;
     private final Clock clock;
+    private final PointPolicy policy;
 
     public ReturnService(
             CenterPartnershipRepository partnerships,
@@ -57,7 +59,8 @@ public class ReturnService {
             PointAccountRepository accounts,
             PointLedgerRepository ledger,
             P0AuditService audit,
-            Clock clock
+            Clock clock,
+            PointPolicy policy
     ) {
         this.partnerships = partnerships;
         this.candidates = candidates;
@@ -69,6 +72,7 @@ public class ReturnService {
         this.ledger = ledger;
         this.audit = audit;
         this.clock = clock;
+        this.policy = policy;
     }
 
     @Transactional
@@ -107,7 +111,7 @@ public class ReturnService {
         validateAfterLocks(managerId, partnership, item, report, handover, itemId, reportId, canonicalReplay);
         if (!collisions.isEmpty()) {
             if (canonicalReplay) {
-                return RecordReturnResponse.from(collisions.getFirst());
+                return RecordReturnResponse.from(collisions.getFirst(), policy.centerConfirmedReturnReward());
             }
             throw new LostoryException(ErrorCode.INVALID_STATE);
         }
@@ -119,13 +123,14 @@ public class ReturnService {
                 handover.getId(), itemId, reportId, item.getFinderId(), partnership.getCenterId(), managerId,
                 clock.instant().truncatedTo(ChronoUnit.MICROS)));
         PointLedger reward = PointLedger.centerReturnReward(
-                item.getFinderId(), saved.getId(), rewardKey(saved.getId()));
+                item.getFinderId(), saved.getId(), rewardKey(saved.getId()),
+                policy.centerConfirmedReturnReward());
         ledger.save(reward);
         account.apply(reward);
         accounts.flush();
         ledger.flush();
         audit.itemReturned(managerId, saved.getId());
-        return RecordReturnResponse.from(saved);
+        return RecordReturnResponse.from(saved, policy.centerConfirmedReturnReward());
     }
 
     private PointAccount lockOrCreateAccount(Long finderId) {
