@@ -171,15 +171,21 @@ class OpenApiDocumentationIntegrationTest {
 
 		// Then
 		System.out.println("CURL_OPENAPI_COMMON_ERROR_OBSERVABLE status=200 operations=32 responses_404=32 "
-			+ "responses_500=32 media=application/json ref=ApiErrorResponse fields=code,message");
+			+ "responses_500=32 media=application/json ref=ApiErrorResponse fields=code,message "
+			+ "required=code,message additionalProperties=false");
 		System.out.println("CURL_OPENAPI_PASSWORD_OBSERVABLE status=200 password_schemas=3 format_password=3 "
 			+ "byte_contract=3 character_bounds_absent=3");
 	}
 
 	private void assertCommonErrorResponses(JsonNode api) {
 		JsonNode errorSchema = api.path("components").path("schemas").path("ApiErrorResponse");
+		assertThat(errorSchema.path("type").asString()).isEqualTo("object");
 		assertThat(errorSchema.path("properties").propertyNames())
 			.containsExactlyInAnyOrder("code", "message");
+		assertThat(errorSchema.path("required").size()).isEqualTo(2);
+		assertThat(errorSchema.path("required").get(0).asString()).isEqualTo("code");
+		assertThat(errorSchema.path("required").get(1).asString()).isEqualTo("message");
+		assertThat(errorSchema.path("additionalProperties").asBoolean()).isFalse();
 		int documented404 = 0;
 		int documented500 = 0;
 		for (ApiContractMatrix.Operation row : ApiContractMatrix.OPERATIONS) {
