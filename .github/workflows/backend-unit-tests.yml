@@ -93,7 +93,7 @@ jobs:
           try:
               failures = ET.parse(report).getroot().iter("failure")
               for failure in failures:
-                  match = pattern.fullmatch(failure.attrib.get("message", ""))
+                  match = pattern.search(failure.attrib.get("message", ""))
                   if match:
                       print(f"matrix row {match.group('row')} expected HTTP "
                             f"{match.group('expected')} actual HTTP {match.group('actual')}")
