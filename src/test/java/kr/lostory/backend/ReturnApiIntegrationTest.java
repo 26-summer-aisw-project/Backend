@@ -6,6 +6,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.Callable;
@@ -45,6 +46,7 @@ class ReturnApiIntegrationTest {
 
     private static final AtomicReference<ContentionGate> ACTIVE_ITEM_LOCK_GATE = new AtomicReference<>();
     private static final AtomicReference<ContentionGate> ACTIVE_STALE_GATE = new AtomicReference<>();
+    private static final AtomicReference<ContentionGate> ACTIVE_ACCOUNT_ABSENCE_GATE = new AtomicReference<>();
 
     @LocalServerPort int port;
     @Autowired JwtTokenService tokens;
@@ -59,6 +61,7 @@ class ReturnApiIntegrationTest {
     void reset() {
         ACTIVE_ITEM_LOCK_GATE.set(null);
         ACTIVE_STALE_GATE.set(null);
+        ACTIVE_ACCOUNT_ABSENCE_GATE.set(null);
         jdbc.update("DELETE FROM audit_logs WHERE target_type = 'RETURN_RECORD'");
         jdbc.update("DELETE FROM point_ledger WHERE entry_type = 'CENTER_RETURN_REWARD'");
         jdbc.update("DELETE FROM return_records");
@@ -145,6 +148,24 @@ class ReturnApiIntegrationTest {
                 fixture.finder().getId())).isEqualTo(5);
         assertThat(auditCount()).isOne();
         assertThat(created.body()).doesNotContain("finder", "email", "location", "private", "token", "metadata");
+    }
+
+    @Test
+    void acceptedReturnAddsRewardToExistingPointAccount() throws Exception {
+        // Given
+        User manager = user(UserRole.CENTER_MANAGER);
+        Fixture fixture = fixture(manager);
+        jdbc.update("INSERT INTO point_accounts (user_id, balance) VALUES (?, 7)", fixture.finder().getId());
+
+        // When
+        HttpResponse<String> response = post(manager, fixture.itemId(), fixture.reportId());
+
+        // Then
+        assertThat(response.statusCode()).isEqualTo(201);
+        assertThat(count("return_records")).isOne();
+        assertThat(rewardCount()).isOne();
+        assertThat(jdbc.queryForObject("SELECT balance FROM point_accounts WHERE user_id=?", Integer.class,
+                fixture.finder().getId())).isEqualTo(12);
     }
 
     @Test
@@ -273,6 +294,127 @@ class ReturnApiIntegrationTest {
                 Integer.class)).isZero();
         assertDurableReturn(manager, firstFixture);
         assertDurableReturn(manager, secondFixture);
+    }
+
+    @Test
+    void concurrentDistinctReturnsCreateOneMissingFinderAccountAndTwoRewards() throws Exception {
+        // Given
+        User manager = user(UserRole.CENTER_MANAGER);
+        Fixture firstFixture = fixture(manager);
+        Fixture secondFixture = fixture(manager);
+        Long finderId = firstFixture.finder().getId();
+        jdbc.update("UPDATE found_items SET finder_id=? WHERE id=?", finderId, secondFixture.itemId());
+        jdbc.update("UPDATE lost_reports SET candidates_stale=true");
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM point_accounts WHERE user_id=?", Integer.class,
+                finderId)).isZero();
+        ContentionGate accountGate = new ContentionGate(2);
+        ACTIVE_ACCOUNT_ABSENCE_GATE.set(accountGate);
+
+        // When
+        List<HttpResponse<String>> responses;
+        try (ExecutorService executor = Executors.newFixedThreadPool(2)) {
+            Future<HttpResponse<String>> first = executor.submit(
+                    () -> post(manager, firstFixture.itemId(), firstFixture.reportId()));
+            Future<HttpResponse<String>> second = executor.submit(
+                    () -> post(manager, secondFixture.itemId(), secondFixture.reportId()));
+            accountGate.assertBothTransactionsReachedAndRelease();
+            responses = List.of(first.get(15, TimeUnit.SECONDS), second.get(15, TimeUnit.SECONDS));
+        } finally {
+            ACTIVE_ACCOUNT_ABSENCE_GATE.compareAndSet(accountGate, null);
+        }
+
+        // Then
+        assertThat(responses).allSatisfy(response -> {
+            assertThat(response.statusCode()).isEqualTo(201);
+            assertThat(response.body()).doesNotContain("Exception", "SQL", "duplicate key", "primary key");
+        });
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM return_records WHERE finder_id=?", Integer.class,
+                finderId)).isEqualTo(2);
+        assertThat(jdbc.queryForObject("""
+                SELECT count(*) FROM point_ledger
+                WHERE user_id=? AND entry_type='CENTER_RETURN_REWARD' AND amount=5
+                  AND reference_type='FOUND_ITEM_RETURN'
+                """, Integer.class, finderId)).isEqualTo(2);
+        assertThat(jdbc.queryForObject("""
+                SELECT count(DISTINCT reference_id) FROM point_ledger
+                WHERE user_id=? AND entry_type='CENTER_RETURN_REWARD'
+                  AND reference_type='FOUND_ITEM_RETURN'
+                """, Integer.class, finderId)).isEqualTo(2);
+        assertThat(jdbc.queryForObject("""
+                SELECT count(DISTINCT idempotency_key) FROM point_ledger
+                WHERE user_id=? AND entry_type='CENTER_RETURN_REWARD'
+                """, Integer.class, finderId)).isEqualTo(2);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM point_accounts WHERE user_id=?", Integer.class,
+                finderId)).isOne();
+        assertThat(jdbc.queryForObject("SELECT balance FROM point_accounts WHERE user_id=?", Integer.class,
+                finderId)).isEqualTo(10);
+    }
+
+    @Test
+    void literalCurlConcurrentReturnsPersistTwoRewardsForOneMissingFinderAccount() throws Exception {
+        // Given
+        User manager = user(UserRole.CENTER_MANAGER);
+        Fixture firstFixture = fixture(manager);
+        Fixture secondFixture = fixture(manager);
+        Long finderId = firstFixture.finder().getId();
+        jdbc.update("UPDATE found_items SET finder_id=? WHERE id=?", finderId, secondFixture.itemId());
+        jdbc.update("UPDATE lost_reports SET candidates_stale=true");
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM point_accounts WHERE user_id=?", Integer.class,
+                finderId)).isZero();
+        ContentionGate accountGate = new ContentionGate(2);
+        ACTIVE_ACCOUNT_ABSENCE_GATE.set(accountGate);
+        Process first = null;
+        Process second = null;
+
+        try {
+            // When
+            first = startCurlReturn(manager, firstFixture.itemId(), firstFixture.reportId());
+            second = startCurlReturn(manager, secondFixture.itemId(), secondFixture.reportId());
+            accountGate.assertBothTransactionsReachedAndRelease();
+            assertThat(first.waitFor(20, TimeUnit.SECONDS)).isTrue();
+            assertThat(second.waitFor(20, TimeUnit.SECONDS)).isTrue();
+            String firstHeaders = new String(first.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+            String secondHeaders = new String(second.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+
+            // Then
+            assertThat(first.exitValue()).isZero();
+            assertThat(second.exitValue()).isZero();
+            assertThat(firstHeaders).contains("HTTP/1.1 201").doesNotContain("HTTP/1.1 500");
+            assertThat(secondHeaders).contains("HTTP/1.1 201").doesNotContain("HTTP/1.1 500");
+            int returnsCount = jdbc.queryForObject(
+                    "SELECT count(*) FROM return_records WHERE finder_id=?", Integer.class, finderId);
+            int rewardsCount = jdbc.queryForObject("""
+                    SELECT count(*) FROM point_ledger
+                    WHERE user_id=? AND entry_type='CENTER_RETURN_REWARD' AND amount=5
+                      AND reference_type='FOUND_ITEM_RETURN'
+                    """, Integer.class, finderId);
+            int distinctReferences = jdbc.queryForObject("""
+                    SELECT count(DISTINCT reference_id) FROM point_ledger
+                    WHERE user_id=? AND entry_type='CENTER_RETURN_REWARD'
+                      AND reference_type='FOUND_ITEM_RETURN'
+                    """, Integer.class, finderId);
+            int accountCount = jdbc.queryForObject(
+                    "SELECT count(*) FROM point_accounts WHERE user_id=?", Integer.class, finderId);
+            int balance = jdbc.queryForObject(
+                    "SELECT balance FROM point_accounts WHERE user_id=?", Integer.class, finderId);
+            assertThat(returnsCount).isEqualTo(2);
+            assertThat(rewardsCount).isEqualTo(2);
+            assertThat(distinctReferences).isEqualTo(2);
+            assertThat(accountCount).isOne();
+            assertThat(balance).isEqualTo(10);
+            System.out.printf(
+                    "R2C_CURL_QA status_201=2 returns=%d rewards=%d accounts=%d "
+                            + "balance_delta=%d distinct_refs=%d redaction=headers_and_counts_only%n",
+                    returnsCount, rewardsCount, accountCount, balance, distinctReferences);
+        } finally {
+            ACTIVE_ACCOUNT_ABSENCE_GATE.compareAndSet(accountGate, null);
+            if (first != null && first.isAlive()) {
+                first.destroyForcibly();
+            }
+            if (second != null && second.isAlive()) {
+                second.destroyForcibly();
+            }
+        }
     }
 
     @Test
@@ -627,6 +769,23 @@ class ReturnApiIntegrationTest {
                 .formatted(itemId, reportId));
     }
 
+    private Process startCurlReturn(User manager, Long itemId, Long reportId) throws Exception {
+        Process process = new ProcessBuilder(
+                "curl", "-i", "--max-time", "15", "-X", "POST",
+                "http://127.0.0.1:" + port + "/api/v1/dashboard/returns",
+                "-sS", "-o", "/dev/null", "-D", "-",
+                "-H", "@-",
+                "-H", "Content-Type: application/json",
+                "--data", "{\"itemId\":\"%s\",\"reportId\":\"%s\"}".formatted(itemId, reportId))
+                .redirectErrorStream(true)
+                .start();
+        try (var headerInput = process.getOutputStream()) {
+            headerInput.write(("Authorization: Bearer " + tokens.issue(manager).value() + "\n")
+                    .getBytes(StandardCharsets.UTF_8));
+        }
+        return process;
+    }
+
     private HttpResponse<String> postRaw(User caller, String body) throws Exception {
         return request("POST", "/api/v1/dashboard/returns", caller, body);
     }
@@ -721,7 +880,9 @@ class ReturnApiIntegrationTest {
             return new BeanPostProcessor() {
                 @Override
                 public Object postProcessAfterInitialization(Object bean, String beanName) {
-                    if (!beanName.equals("foundItemRepository") && !beanName.equals("lostReportRepository")) {
+                    if (!beanName.equals("foundItemRepository")
+                            && !beanName.equals("lostReportRepository")
+                            && !beanName.equals("pointAccountRepository")) {
                         return bean;
                     }
                     ProxyFactory proxy = new ProxyFactory(bean);
@@ -737,7 +898,17 @@ class ReturnApiIntegrationTest {
                         if (gate != null) {
                             gate.reachAndAwaitRelease();
                         }
-                        return invocation.proceed();
+                        Object result = invocation.proceed();
+                        ContentionGate accountGate = beanName.equals("pointAccountRepository")
+                                && method.equals("findByUserIdForUpdate")
+                                && result instanceof java.util.Optional<?> optional
+                                && optional.isEmpty()
+                                ? ACTIVE_ACCOUNT_ABSENCE_GATE.get()
+                                : null;
+                        if (accountGate != null) {
+                            accountGate.reachAndAwaitRelease();
+                        }
+                        return result;
                     });
                     return proxy.getProxy();
                 }

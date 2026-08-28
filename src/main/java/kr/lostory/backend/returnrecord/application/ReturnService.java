@@ -131,7 +131,7 @@ public class ReturnService {
     private PointAccount lockOrCreateAccount(Long finderId) {
         PointAccount account = accounts.findByUserIdForUpdate(finderId).orElse(null);
         if (account == null) {
-            accounts.saveAndFlush(new PointAccount(finderId));
+            accounts.insertIfAbsent(finderId);
             account = accounts.findByUserIdForUpdate(finderId).orElseThrow();
         }
         return account;
