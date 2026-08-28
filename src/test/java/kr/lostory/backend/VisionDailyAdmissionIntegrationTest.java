@@ -8,6 +8,8 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -23,6 +25,7 @@ import kr.lostory.backend.user.domain.User;
 import kr.lostory.backend.user.repository.UserRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
@@ -101,6 +104,32 @@ class VisionDailyAdmissionIntegrationTest {
         assertThat(jobs.count()).isOne();
         assertThat(storage.keys()).hasSize(1);
         assertThat(reservationCount()).isOne();
+    }
+
+    @Test
+    void rawSdkClientPutFailureReleasesCapacityForNextRequest(@TempDir Path tempDir) throws Exception {
+        // Given
+        String token = token();
+        storage.failNextSdkClient();
+        Path image = tempDir.resolve("test-image.png");
+        Files.write(image, PNG);
+
+        // When
+        CurlResponse failed = createDraftWithCurl(token, image);
+        CurlResponse retried = createDraftWithCurl(token, image);
+
+        // Then
+        assertThat(failed.status()).isEqualTo(500);
+        assertThat(objectMapper.readTree(failed.body()).get("code").asString()).isEqualTo("COMMON-005");
+        assertThat(failed.body()).doesNotContain("transport", "SdkClientException", "software.amazon");
+        assertThat(retried.status()).isEqualTo(201);
+        assertThat(items.count()).isOne();
+        assertThat(images.count()).isOne();
+        assertThat(jobs.count()).isOne();
+        assertThat(storage.keys()).hasSize(1);
+        assertThat(reservationCount()).isOne();
+        System.out.println("R2B_HTTP_OBSERVABLE first=500 code=COMMON-005 aws-detail-exposed=false "
+                + "retry=201 items=1 images=1 jobs=1 objects=1 reserved_count=1");
     }
 
     @Test
@@ -196,6 +225,26 @@ class VisionDailyAdmissionIntegrationTest {
         return http.send(request, HttpResponse.BodyHandlers.ofString());
     }
 
+    private CurlResponse createDraftWithCurl(String token, Path image) throws Exception {
+        Process process = new ProcessBuilder(
+                "curl", "--silent", "--show-error", "-i", "--max-time", "15", "-X", "POST",
+                "http://127.0.0.1:" + port + "/api/v1/found-items/drafts",
+                "-H", "Authorization: Bearer " + token,
+                "-F", "image=@" + image + ";type=image/png",
+                "--write-out", "\nR2B_STATUS:%{http_code}\n")
+                .redirectErrorStream(true)
+                .start();
+        String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+        int exitCode = process.waitFor();
+        assertThat(exitCode).isZero();
+        int statusMarker = output.lastIndexOf("\nR2B_STATUS:");
+        assertThat(statusMarker).isNotNegative();
+        int bodyStart = output.lastIndexOf("\r\n\r\n", statusMarker);
+        assertThat(bodyStart).isNotNegative();
+        int status = Integer.parseInt(output.substring(statusMarker + 12, statusMarker + 15));
+        return new CurlResponse(status, output.substring(bodyStart + 4, statusMarker));
+    }
+
     private long reservationCount() {
         return jdbc.queryForObject(
                 "SELECT COALESCE(sum(reserved_count), 0) FROM vision_daily_admissions",
@@ -211,5 +260,8 @@ class VisionDailyAdmissionIntegrationTest {
                 ? "Vision processing capacity is unavailable."
                 : "An unexpected server error occurred.";
         assertThat(body.get("message").asString()).isEqualTo(expectedMessage);
+    }
+
+    private record CurlResponse(int status, String body) {
     }
 }

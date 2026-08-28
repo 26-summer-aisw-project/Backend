@@ -48,7 +48,7 @@ public class S3ObjectStorage implements ObjectStorage, AutoCloseable {
                                     OPERATION_METADATA, uploadOperationId.toString(),
                                     CREATED_METADATA, Instant.now().toString())),
                     RequestBody.fromBytes(bytes));
-        } catch (S3Exception exception) {
+        } catch (SdkException exception) {
             throw new ObjectStorageException("Object put failed.", exception);
         }
     }

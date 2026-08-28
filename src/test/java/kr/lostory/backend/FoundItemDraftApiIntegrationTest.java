@@ -1,6 +1,9 @@
 package kr.lostory.backend;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
 
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -16,6 +19,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
+import kr.lostory.backend.common.storage.S3ObjectStorage;
 import kr.lostory.backend.auth.JwtTokenService;
 import kr.lostory.backend.common.storage.ObjectStorage;
 import kr.lostory.backend.common.storage.ObjectStorageException;
@@ -40,6 +44,10 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
+import software.amazon.awssdk.core.exception.SdkClientException;
+import software.amazon.awssdk.core.sync.RequestBody;
+import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 
 @ActiveProfiles("test")
 @Import({PostgresTestContainerConfig.class, FoundItemDraftApiIntegrationTest.FakeBoundaryConfig.class})
@@ -403,10 +411,19 @@ class FoundItemDraftApiIntegrationTest {
     static class FakeObjectStorage implements ObjectStorage {
         private final Map<String, Stored> objects = new ConcurrentHashMap<>();
         private final AtomicBoolean failNext = new AtomicBoolean();
+        private final AtomicBoolean failNextSdkClient = new AtomicBoolean();
 
         @Override
         public void put(String key, byte[] bytes, String contentType, UUID operationId) {
             if (failNext.compareAndSet(true, false)) throw new ObjectStorageException("fake failure");
+            if (failNextSdkClient.compareAndSet(true, false)) {
+                S3Client client = mock(S3Client.class);
+                SdkClientException failure = SdkClientException.create("transport");
+                doThrow(failure).when(client).putObject(
+                        any(java.util.function.Consumer.class), any(RequestBody.class));
+                new S3ObjectStorage(client, mock(S3Presigner.class), "private-bucket", java.time.Clock.systemUTC())
+                        .put(key, bytes, contentType, operationId);
+            }
             objects.put(key, new Stored(bytes.clone(), contentType, operationId, Instant.now()));
         }
 
@@ -440,8 +457,9 @@ class FoundItemDraftApiIntegrationTest {
         }
 
         void failNext() { failNext.set(true); }
+        void failNextSdkClient() { failNextSdkClient.set(true); }
         Set<String> keys() { return Set.copyOf(objects.keySet()); }
-        void reset() { objects.clear(); failNext.set(false); }
+        void reset() { objects.clear(); failNext.set(false); failNextSdkClient.set(false); }
 
         private ObjectMetadata metadata(String key, Stored stored) {
             return new ObjectMetadata(key, stored.contentType(), stored.bytes().length,
