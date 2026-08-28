@@ -121,6 +121,8 @@ public class OpenApiConfig {
 			});
 			operation.getResponses().addApiResponse("400", error("요청 형식 또는 검증 오류"));
 			operation.getResponses().addApiResponse("401", error("Bearer 인증 실패"));
+			operation.getResponses().addApiResponse("404", error("요청한 리소스를 찾을 수 없음"));
+			operation.getResponses().addApiResponse("500", error("예기치 않은 서버 오류"));
 			if (!PUBLIC_OPERATIONS.contains(operationKey)) {
 				operation.getResponses().addApiResponse("403", error("역할 또는 리소스 권한 거부"));
 			}

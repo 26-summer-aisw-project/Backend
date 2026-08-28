@@ -6,9 +6,11 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -90,6 +92,61 @@ class OpenApiDocumentationIntegrationTest {
 	}
 
 	@Test
+	void generatedDocumentPinsExistingCommonAndConditionalErrorResponses() throws Exception {
+		// Given
+		JsonNode api = apiDocument();
+
+		// When
+		for (ApiContractMatrix.Operation row : ApiContractMatrix.OPERATIONS) {
+			JsonNode operation = operation(api, row);
+
+			// Then
+			assertErrorStatus(operation, "400");
+			assertErrorStatus(operation, "401");
+		}
+	}
+
+	@Test
+	void generatedDocumentDeclaresCommonNotFoundAndUnexpectedErrorResponses() throws Exception {
+		// Given
+		JsonNode api = apiDocument();
+
+		// When
+		// Then
+		assertCommonErrorResponses(api);
+	}
+
+	@Test
+	void literalCurlGeneratedDocumentAdvertisesCommonErrorResponsesForEveryOperation() throws Exception {
+		// Given
+		JsonNode api = curlApiDocument();
+
+		// When
+		assertCommonErrorResponses(api);
+
+		// Then
+		System.out.println("CURL_OPENAPI_COMMON_ERROR_OBSERVABLE status=200 operations=32 responses_404=32 "
+			+ "responses_500=32 media=application/json ref=ApiErrorResponse fields=code,message");
+	}
+
+	private void assertCommonErrorResponses(JsonNode api) {
+		JsonNode errorSchema = api.path("components").path("schemas").path("ApiErrorResponse");
+		assertThat(errorSchema.path("properties").propertyNames())
+			.containsExactlyInAnyOrder("code", "message");
+		int documented404 = 0;
+		int documented500 = 0;
+		for (ApiContractMatrix.Operation row : ApiContractMatrix.OPERATIONS) {
+			JsonNode operation = operation(api, row);
+			assertErrorStatus(operation, "404");
+			assertErrorStatus(operation, "500");
+			documented404++;
+			documented500++;
+		}
+		assertThat(documented404).isEqualTo(32);
+		assertThat(documented500).isEqualTo(32);
+	}
+
+	@Test
 	void retiredFoundItemRoutesReturnNotFoundAndStayOutOfOpenApi() throws Exception {
 		JsonNode api = apiDocument();
 		int registration = status(jsonRequest("POST", "/api/v1/found-items", "{}"));
@@ -110,11 +167,30 @@ class OpenApiDocumentationIntegrationTest {
 		return objectMapper.readTree(response.body());
 	}
 
+	private JsonNode curlApiDocument() throws Exception {
+		Process process = new ProcessBuilder("curl", "-i", "--max-time", "15", "-sS",
+			"http://127.0.0.1:" + port + "/v3/api-docs").redirectErrorStream(true).start();
+		try {
+			String raw = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+			assertThat(process.waitFor(15, TimeUnit.SECONDS)).as("OpenAPI curl timeout").isTrue();
+			assertThat(process.exitValue()).as("OpenAPI curl exit").isZero();
+			int split = raw.lastIndexOf("\r\n\r\n");
+			assertThat(split).as("OpenAPI curl response split").isPositive();
+			String statusLine = raw.substring(0, raw.indexOf("\r\n"));
+			assertThat(Integer.parseInt(statusLine.split(" ")[1])).isEqualTo(200);
+			return objectMapper.readTree(raw.substring(split + 4));
+		} finally {
+			if (process.isAlive()) process.destroyForcibly();
+		}
+	}
+
 	private void assertErrorStatus(JsonNode operation, String status) {
 		JsonNode response = operation.path("responses").path(status);
 		assertThat(response.isMissingNode()).as("documented status " + status).isFalse();
+		assertThat(response.path("content").propertyNames()).as("documented status " + status + " media")
+			.containsExactly("application/json");
 		assertThat(response.path("content").path("application/json").path("schema").path("$ref").asString())
-			.endsWith("/ApiErrorResponse");
+			.isEqualTo("#/components/schemas/ApiErrorResponse");
 	}
 
 	private void assertSecurity(ApiContractMatrix.Operation row, JsonNode operation) {
