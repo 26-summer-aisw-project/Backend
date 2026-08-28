@@ -3,6 +3,7 @@ package kr.lostory.backend;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import kr.lostory.backend.auth.JwtTokenService;
+import kr.lostory.backend.common.exception.ErrorCode;
 import kr.lostory.backend.user.domain.User;
 import kr.lostory.backend.user.domain.UserRole;
 import kr.lostory.backend.user.repository.UserRepository;
@@ -10,8 +11,11 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
+import java.util.regex.Pattern;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -19,19 +23,31 @@ import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
+import tools.jackson.core.JsonParser;
+import tools.jackson.core.StreamReadFeature;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
+import tools.jackson.core.json.JsonFactory;
 
 @ActiveProfiles("test")
 @Import({PostgresTestContainerConfig.class, FoundItemObjectStorageIntegrationTest.StorageTestConfig.class})
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class ApiContractIntegrationTest {
 
+	private static final String NO_MATRIX_ERROR_CODE = "NONE";
+	private static final Pattern MATRIX_ERROR_CODE_PATTERN = Pattern.compile("[A-Z]+-[0-9]{3}");
+	private static final Set<String> MATRIX_ERROR_CODES = Arrays.stream(ErrorCode.values())
+		.map(ErrorCode::getCode)
+		.filter(MATRIX_ERROR_CODE_PATTERN.asMatchPredicate())
+		.collect(java.util.stream.Collectors.toUnmodifiableSet());
+
 	@LocalServerPort int port;
 	@Autowired JwtTokenService tokens;
 	@Autowired UserRepository users;
 	@Autowired JdbcTemplate jdbc;
 	private final ObjectMapper json = new ObjectMapper();
+	private final ObjectMapper matrixDiagnosticJson = new ObjectMapper(JsonFactory.builder()
+		.enable(StreamReadFeature.STRICT_DUPLICATE_DETECTION).build());
 	private final HttpClient httpClient = HttpClient.newHttpClient();
 
 	@Test
@@ -44,8 +60,8 @@ class ApiContractIntegrationTest {
 			HttpResponse<String> response = httpClient.send(request,
 				HttpResponse.BodyHandlers.ofString());
 			assertThat(response.statusCode())
-				.withFailMessage("matrix row %s expected HTTP %d actual HTTP %d",
-					row.key(), row.successStatus(), response.statusCode())
+				.withFailMessage("matrix row %s expected HTTP %d actual HTTP %d code %s",
+					row.key(), row.successStatus(), response.statusCode(), matrixErrorCode(response.body()))
 				.isEqualTo(row.successStatus());
 			JsonNode body = json.readTree(response.body());
 			assertThat(body.propertyNames()).as(row.key() + " success fields")
@@ -171,5 +187,25 @@ class ApiContractIntegrationTest {
 		JsonNode body = json.readTree(response.body());
 		assertThat(body.propertyNames()).containsExactlyInAnyOrder("code", "message");
 		assertThat(body.get("code").asString()).isEqualTo(code);
+	}
+
+	private String matrixErrorCode(String body) {
+		try (JsonParser parser = matrixDiagnosticJson.createParser(body)) {
+			JsonNode envelope = matrixDiagnosticJson.readTree(parser);
+			if (envelope == null || parser.nextToken() != null || !envelope.isObject() || envelope.size() != 2
+					|| !envelope.has("code") || !envelope.has("message")) {
+				return NO_MATRIX_ERROR_CODE;
+			}
+			JsonNode code = envelope.get("code");
+			JsonNode message = envelope.get("message");
+			if (!code.isTextual() || !message.isTextual()) {
+				return NO_MATRIX_ERROR_CODE;
+			}
+			String value = code.asString();
+			return MATRIX_ERROR_CODE_PATTERN.matcher(value).matches() && MATRIX_ERROR_CODES.contains(value)
+				? value : NO_MATRIX_ERROR_CODE;
+		} catch (Exception ignored) {
+			return NO_MATRIX_ERROR_CODE;
+		}
 	}
 }

@@ -86,17 +86,19 @@ jobs:
           })
           row_pattern = "|".join(re.escape(row) for row in sorted(allowed_rows))
           pattern = re.compile(
-              rf"matrix row (?P<row>{row_pattern}) "
-              r"expected HTTP (?P<expected>[0-9]{3}) actual HTTP (?P<actual>[0-9]{3})"
+              rf"java\.lang\.AssertionError: matrix row (?P<row>{row_pattern}) "
+              r"expected HTTP (?P<expected>[0-9]{3}) actual HTTP (?P<actual>[0-9]{3}) "
+              r"code (?P<code>[A-Z]+-[0-9]{3}|NONE)"
           )
 
           try:
               failures = ET.parse(report).getroot().iter("failure")
               for failure in failures:
-                  match = pattern.search(failure.attrib.get("message", ""))
+                  match = pattern.fullmatch(failure.attrib.get("message", ""))
                   if match:
                       print(f"matrix row {match.group('row')} expected HTTP "
-                            f"{match.group('expected')} actual HTTP {match.group('actual')}")
+                            f"{match.group('expected')} actual HTTP {match.group('actual')} "
+                            f"code {match.group('code')}")
                       break
           except Exception:
               pass
