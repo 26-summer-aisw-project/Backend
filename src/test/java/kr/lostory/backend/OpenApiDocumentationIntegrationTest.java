@@ -2,6 +2,11 @@ package kr.lostory.backend;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import io.swagger.v3.oas.models.Components;
+import io.swagger.v3.oas.models.OpenAPI;
+import io.swagger.v3.oas.models.media.ObjectSchema;
+import io.swagger.v3.oas.models.media.Schema;
+import io.swagger.v3.oas.models.media.StringSchema;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -13,10 +18,12 @@ import java.util.List;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.context.ActiveProfiles;
+import org.springdoc.core.customizers.GlobalOpenApiCustomizer;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
@@ -27,6 +34,10 @@ class OpenApiDocumentationIntegrationTest {
 
 	@LocalServerPort private int port;
 	@Autowired private ObjectMapper objectMapper;
+	@Autowired
+	@Qualifier("passwordByteLengthSchema")
+	private GlobalOpenApiCustomizer passwordByteLengthSchema;
+
 	private final HttpClient httpClient = HttpClient.newHttpClient();
 
 	@Test
@@ -117,16 +128,52 @@ class OpenApiDocumentationIntegrationTest {
 	}
 
 	@Test
+	void generatedDocumentDeclaresUtf8BytePasswordContractsWithoutCharacterBounds() throws Exception {
+		// Given
+		JsonNode api = apiDocument();
+
+		// Then
+		assertUtf8BytePasswordContracts(api);
+	}
+
+	@Test
+	void passwordByteCustomizerRetainsCharacterBoundsForWrongIntegralExtensionValues() {
+		// Given
+		List<Schema<?>> wrongIntegralContracts = List.of(
+			passwordSchemaWithByteExtensions((byte) 7, 72L),
+			passwordSchemaWithByteExtensions((short) 7, 72L),
+			passwordSchemaWithByteExtensions(7, 72L),
+			passwordSchemaWithByteExtensions((byte) 8, 71L));
+		ObjectSchema container = new ObjectSchema();
+		for (int index = 0; index < wrongIntegralContracts.size(); index++) {
+			container.addProperty("wrongIntegral" + index, wrongIntegralContracts.get(index));
+		}
+		OpenAPI api = new OpenAPI().components(new Components().addSchemas("PasswordPredicateRegression", container));
+
+		// When
+		passwordByteLengthSchema.customise(api);
+
+		// Then
+		wrongIntegralContracts.forEach(property -> {
+			assertThat(property.getMinLength()).isEqualTo(1);
+			assertThat(property.getMaxLength()).isEqualTo(72);
+		});
+	}
+
+	@Test
 	void literalCurlGeneratedDocumentAdvertisesCommonErrorResponsesForEveryOperation() throws Exception {
 		// Given
 		JsonNode api = curlApiDocument();
 
 		// When
 		assertCommonErrorResponses(api);
+		assertUtf8BytePasswordContracts(api);
 
 		// Then
 		System.out.println("CURL_OPENAPI_COMMON_ERROR_OBSERVABLE status=200 operations=32 responses_404=32 "
 			+ "responses_500=32 media=application/json ref=ApiErrorResponse fields=code,message");
+		System.out.println("CURL_OPENAPI_PASSWORD_OBSERVABLE status=200 password_schemas=3 format_password=3 "
+			+ "byte_contract=3 character_bounds_absent=3");
 	}
 
 	private void assertCommonErrorResponses(JsonNode api) {
@@ -144,6 +191,52 @@ class OpenApiDocumentationIntegrationTest {
 		}
 		assertThat(documented404).isEqualTo(32);
 		assertThat(documented500).isEqualTo(32);
+	}
+
+	private JsonNode requestPasswordSchema(JsonNode api, String path) {
+		JsonNode operation = api.path("paths").path(path).path("post");
+		JsonNode request = operation.path("requestBody");
+		return resolve(api, firstSchema(request.path("content"))).path("properties").path("password");
+	}
+
+	private void assertUtf8BytePasswordContracts(JsonNode api) {
+		assertUtf8BytePasswordSchema(requestPasswordSchema(api, "/api/v1/auth/signup"), "signup");
+		assertUtf8BytePasswordSchema(requestPasswordSchema(api, "/api/v1/auth/login"), "login");
+		assertUtf8BytePasswordSchema(
+			requestPasswordSchema(api, "/api/v1/partner-manager-activations/{activationToken}"),
+			"partner-manager activation");
+		int byteContracts = 0;
+		for (var component : api.path("components").path("schemas").properties()) {
+			for (JsonNode property : component.getValue().path("properties")) {
+				if (property.path("x-password-byte-minimum").asInt() == 8
+					&& property.path("x-password-byte-maximum").asInt() == 72
+					&& property.path("x-password-byte-encoding").asString().equals("UTF-8")) {
+					byteContracts++;
+				}
+			}
+		}
+		assertThat(byteContracts).as("password byte-contract schemas").isEqualTo(3);
+	}
+
+	private void assertUtf8BytePasswordSchema(JsonNode password, String payload) {
+		assertThat(password.path("type").asString()).as(payload + " password type").isEqualTo("string");
+		assertThat(password.path("format").asString()).as(payload + " password format").isEqualTo("password");
+		assertThat(password.path("x-password-byte-minimum").asInt()).as(payload + " password byte minimum").isEqualTo(8);
+		assertThat(password.path("x-password-byte-maximum").asInt()).as(payload + " password byte maximum").isEqualTo(72);
+		assertThat(password.path("x-password-byte-encoding").asString())
+			.as(payload + " password byte encoding").isEqualTo("UTF-8");
+		assertThat(password.has("minLength")).as(payload + " password character minimum absent").isFalse();
+		assertThat(password.has("maxLength")).as(payload + " password character maximum absent").isFalse();
+	}
+
+	private Schema<?> passwordSchemaWithByteExtensions(Object minimum, Object maximum) {
+		Schema<?> property = new StringSchema();
+		property.setMinLength(1);
+		property.setMaxLength(72);
+		property.addExtension("x-password-byte-minimum", minimum);
+		property.addExtension("x-password-byte-maximum", maximum);
+		property.addExtension("x-password-byte-encoding", "UTF-8");
+		return property;
 	}
 
 	@Test
@@ -168,10 +261,11 @@ class OpenApiDocumentationIntegrationTest {
 	}
 
 	private JsonNode curlApiDocument() throws Exception {
-		Process process = new ProcessBuilder("curl", "-i", "--max-time", "15", "-sS",
-			"http://127.0.0.1:" + port + "/v3/api-docs").redirectErrorStream(true).start();
+		Process process = new ProcessBuilder("curl", "-i", "--max-time", "15",
+			"http://127.0.0.1:" + port + "/v3/api-docs").start();
 		try {
 			String raw = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+			process.getErrorStream().readAllBytes();
 			assertThat(process.waitFor(15, TimeUnit.SECONDS)).as("OpenAPI curl timeout").isTrue();
 			assertThat(process.exitValue()).as("OpenAPI curl exit").isZero();
 			int split = raw.lastIndexOf("\r\n\r\n");

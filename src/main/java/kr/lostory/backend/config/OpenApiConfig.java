@@ -1,5 +1,6 @@
 package kr.lostory.backend.config;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import io.swagger.v3.oas.models.OpenAPI;
 import io.swagger.v3.oas.models.Components;
 import io.swagger.v3.oas.models.info.Info;
@@ -8,11 +9,13 @@ import io.swagger.v3.oas.models.media.Content;
 import io.swagger.v3.oas.models.media.MediaType;
 import io.swagger.v3.oas.models.media.ObjectSchema;
 import io.swagger.v3.oas.models.media.StringSchema;
+import io.swagger.v3.oas.models.media.Schema;
 import io.swagger.v3.oas.models.responses.ApiResponse;
 import java.math.BigDecimal;
 import java.util.Map;
 import java.util.Set;
 import org.springdoc.core.customizers.OperationCustomizer;
+import org.springdoc.core.customizers.GlobalOpenApiCustomizer;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -137,6 +140,40 @@ public class OpenApiConfig {
 			}
 			return operation;
 		};
+	}
+
+	@Bean
+	GlobalOpenApiCustomizer passwordByteLengthSchema() {
+		return openApi -> {
+			if (openApi.getComponents() == null || openApi.getComponents().getSchemas() == null) return;
+			openApi.getComponents().getSchemas().values().forEach(schema -> {
+				if (schema.getProperties() == null) return;
+				schema.getProperties().values().forEach(value -> {
+					if (!(value instanceof Schema<?> property)) return;
+					if (hasPasswordByteContract(property)) {
+						property.setMinLength(null);
+						property.setMaxLength(null);
+					}
+				});
+			});
+		};
+	}
+
+	private boolean hasPasswordByteContract(Schema<?> property) {
+		Map<String, Object> extensions = property.getExtensions();
+		if (extensions == null) return false;
+		Object minimum = extensions.get("x-password-byte-minimum");
+		Object maximum = extensions.get("x-password-byte-maximum");
+		Object encoding = extensions.get("x-password-byte-encoding");
+		return isExactInteger(minimum, 8)
+			&& isExactInteger(maximum, 72)
+			&& encoding instanceof String value && value.equals("UTF-8");
+	}
+
+	private boolean isExactInteger(Object value, int expected) {
+		if (value instanceof JsonNode node) return node.isIntegralNumber() && node.intValue() == expected;
+		return (value instanceof Byte || value instanceof Short || value instanceof Integer || value instanceof Long)
+			&& ((Number) value).longValue() == expected;
 	}
 
 	private ApiResponse error(String description) {

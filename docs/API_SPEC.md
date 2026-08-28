@@ -67,11 +67,12 @@ P0에는 모든 FoundItem 필드를 한 번에 반환하는 공통 응답이 없
 > POST `/auth/signup`
 
 - 공개 엔드포인트다. `ACTIVE` 상태의 일반 사용자를 만든다.
+- `password`는 UTF-8 기준 양끝을 포함해 8바이트 이상 72바이트 이하여야 한다.
 
 **요청 payload**
 
 ```json
-{ "email": "user@example.com", "password": "8바이트 이상 비밀번호", "displayName": "사용자" }
+{ "email": "user@example.com", "password": "8~72 UTF-8 바이트 비밀번호", "displayName": "사용자" }
 ```
 
 **응답 payload — 201 Created**
@@ -84,11 +85,12 @@ P0에는 모든 FoundItem 필드를 한 번에 반환하는 공통 응답이 없
 > POST `/auth/login`
 
 - 공개 엔드포인트다. 차단·삭제 계정도 일반적인 `401 AUTH-002`로 처리한다.
+- `password`는 UTF-8 기준 양끝을 포함해 8바이트 이상 72바이트 이하여야 한다.
 
 **요청 payload**
 
 ```json
-{ "email": "user@example.com", "password": "비밀번호" }
+{ "email": "user@example.com", "password": "8~72 UTF-8 바이트 비밀번호" }
 ```
 
 **응답 payload — 200 OK**
@@ -521,11 +523,12 @@ P1 센터 수락 전에는 `PATCH /found-items/{itemId}/registration`으로 인�
 > POST `/partner-manager-activations/{activationToken}`
 
 - 공개 경로에서 새 관리 계정이 비밀번호를 설정하고 대시보드 전용으로 활성화된다. 토큰은 24시간·1회 사용이며 성공·실패 응답이나 로그에 다시 노출하지 않는다.
+- `password`는 UTF-8 기준 양끝을 포함해 8바이트 이상 72바이트 이하여야 한다.
 
 **요청 payload**
 
 ```json
-{ "password": "8바이트 이상 비밀번호" }
+{ "password": "8~72 UTF-8 바이트 비밀번호" }
 ```
 
 **응답 payload — 200 OK**
