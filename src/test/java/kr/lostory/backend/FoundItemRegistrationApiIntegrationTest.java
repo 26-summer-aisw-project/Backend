@@ -9,6 +9,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 import kr.lostory.backend.auth.JwtTokenService;
 import kr.lostory.backend.founditem.domain.FoundItemRepository;
 import kr.lostory.backend.founditem.application.MatchingFeatureResolver;
@@ -336,6 +337,188 @@ class FoundItemRegistrationApiIntegrationTest {
         assertThat(stale(reportId)).isTrue();
     }
 
+    @Test
+    void dueRegistrationAndDetailApplyLifecycleBeforeAdmission() throws Exception {
+        // Given
+        User owner = user();
+        String token = tokens.issue(owner).value();
+        String dueDraftRegistration = createDraft(token);
+        String dueDraftDetail = createDraft(token);
+        String dueActive = createDraft(token);
+        String duePending = createDraft(token);
+        String centerId = insertEligibleCenter();
+        long draftCandidateReport = insertReport(owner.getId(), "OPEN");
+        jdbc.update("""
+                INSERT INTO match_candidates
+                    (report_id, item_id, rank, score, score_breakdown, created_at)
+                VALUES (?, ?, 1, 90, '{}', clock_timestamp())
+                """, draftCandidateReport, Long.valueOf(dueDraftRegistration));
+        assertThat(patch(dueActive, token, registration("LEFT_IN_PLACE", null, null)).statusCode())
+                .isEqualTo(200);
+        assertThat(patch(duePending, token, registration("HANDED_TO_CENTER", centerId, null)).statusCode())
+                .isEqualTo(200);
+        jdbc.update("""
+                UPDATE found_items
+                SET created_at = clock_timestamp() - INTERVAL '25 hours',
+                    updated_at = clock_timestamp() - INTERVAL '25 hours',
+                    draft_expires_at = clock_timestamp() - INTERVAL '1 second'
+                WHERE id IN (?, ?)
+                """, Long.valueOf(dueDraftRegistration), Long.valueOf(dueDraftDetail));
+        jdbc.update("""
+                UPDATE found_items
+                SET updated_at = clock_timestamp() - INTERVAL '2 seconds',
+                    expired_at = clock_timestamp() - INTERVAL '1 second'
+                WHERE id IN (?, ?)
+                """, Long.valueOf(dueActive), Long.valueOf(duePending));
+
+        // When
+        HttpResponse<String> revivedDraft = patch(
+                dueDraftRegistration, token, registration("LEFT_IN_PLACE", null, null));
+        HttpResponse<String> staleDraftDetail = get(dueDraftDetail, token);
+        HttpResponse<String> staleActivePatch = patch(
+                dueActive, token, registration("LEFT_IN_PLACE", null, null));
+        HttpResponse<String> staleActiveDetail = get(dueActive, token);
+        HttpResponse<String> stalePendingPatch = patch(
+                duePending, token, registration("HANDED_TO_CENTER", centerId, null));
+        HttpResponse<String> stalePendingDetail = get(duePending, token);
+
+        // Then
+        assertError(revivedDraft, 404, "COMMON-004");
+        assertError(staleDraftDetail, 404, "COMMON-004");
+        assertError(staleActivePatch, 404, "COMMON-004");
+        assertThat(staleActiveDetail.statusCode()).isEqualTo(200);
+        assertThat(mapper.readTree(staleActiveDetail.body()).get("status").asString()).isEqualTo("EXPIRED");
+        assertError(stalePendingPatch, 404, "COMMON-004");
+        assertThat(stalePendingDetail.statusCode()).isEqualTo(200);
+        assertThat(mapper.readTree(stalePendingDetail.body()).get("status").asString()).isEqualTo("EXPIRED");
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM found_items WHERE id IN (?, ?)",
+                Integer.class, Long.valueOf(dueDraftRegistration), Long.valueOf(dueDraftDetail))).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM match_candidates WHERE item_id = ?",
+                Integer.class, Long.valueOf(dueDraftRegistration))).isZero();
+        assertThat(jdbc.queryForObject("""
+                SELECT count(*) FROM object_deletion_outbox
+                WHERE reason = 'DRAFT_EXPIRED' AND status = 'PENDING'
+                """, Integer.class)).isEqualTo(2);
+        assertThat(jdbc.queryForList(
+                "SELECT status FROM found_items WHERE id IN (?, ?) ORDER BY id",
+                String.class, Long.valueOf(dueActive), Long.valueOf(duePending)))
+                .containsExactly("EXPIRED", "EXPIRED");
+    }
+
+    @Test
+    void dueImageAndHandoverAreRejectedBeforeMutation() throws Exception {
+        // Given
+        User owner = user();
+        String token = tokens.issue(owner).value();
+        String activeId = createDraft(token);
+        String pendingId = createDraft(token);
+        String centerId = insertEligibleCenter();
+        assertThat(patch(activeId, token, registration("LEFT_IN_PLACE", null, null)).statusCode()).isEqualTo(200);
+        assertThat(patch(pendingId, token, registration("HANDED_TO_CENTER", centerId, null)).statusCode())
+                .isEqualTo(200);
+        long reportId = insertReport(owner.getId(), "OPEN");
+        jdbc.update("""
+                UPDATE found_items
+                SET updated_at = clock_timestamp() - INTERVAL '2 seconds',
+                    expired_at = clock_timestamp()
+                WHERE id IN (?, ?)
+                """, Long.valueOf(activeId), Long.valueOf(pendingId));
+        int objectsBefore = storage.keys().size();
+        int imagesBefore = jdbc.queryForObject("SELECT count(*) FROM found_item_images", Integer.class);
+
+        // When
+        HttpResponse<String> image = imagePut(activeId, token, SECOND_PNG);
+        HttpResponse<String> handover = confirm(pendingId, token);
+
+        // Then
+        assertError(image, 404, "COMMON-004");
+        assertError(handover, 404, "COMMON-004");
+        assertThat(storage.keys()).hasSize(objectsBefore);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM found_item_images", Integer.class))
+                .isEqualTo(imagesBefore);
+        assertThat(jdbc.queryForList("SELECT status FROM found_items WHERE id IN (?, ?) ORDER BY id",
+                String.class, Long.valueOf(activeId), Long.valueOf(pendingId)))
+                .containsExactly("EXPIRED", "EXPIRED");
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM center_handovers WHERE found_item_id = ?",
+                Integer.class, Long.valueOf(pendingId))).isZero();
+        assertThat(stale(reportId)).isTrue();
+    }
+
+    @Test
+    void dueItemsAreRemediatedBeforeDatabaseBackedListPagination() throws Exception {
+        // Given
+        User owner = user();
+        String token = tokens.issue(owner).value();
+        String dueDraft = createDraft(token);
+        String dueActive = createDraft(token);
+        String duePending = createDraft(token);
+        String futureDraft = createDraft(token);
+        String centerId = insertEligibleCenter();
+        assertThat(patch(dueActive, token, registration("LEFT_IN_PLACE", null, null)).statusCode()).isEqualTo(200);
+        assertThat(patch(duePending, token, registration("HANDED_TO_CENTER", centerId, null)).statusCode())
+                .isEqualTo(200);
+        jdbc.update("""
+                UPDATE found_items SET updated_at = clock_timestamp() - INTERVAL '2 seconds',
+                    draft_expires_at = clock_timestamp() WHERE id = ?
+                """, Long.valueOf(dueDraft));
+        jdbc.update("""
+                UPDATE found_items SET updated_at = clock_timestamp() - INTERVAL '2 seconds',
+                    expired_at = clock_timestamp() WHERE id IN (?, ?)
+                """, Long.valueOf(dueActive), Long.valueOf(duePending));
+
+        // When
+        HttpResponse<String> unfiltered = getPath("/api/v1/found-items?page=1&pageSize=20", token);
+        HttpResponse<String> drafts = getPath("/api/v1/found-items?page=1&pageSize=20&status=DRAFT", token);
+        HttpResponse<String> active = getPath("/api/v1/found-items?page=1&pageSize=20&status=ACTIVE", token);
+        HttpResponse<String> pending = getPath(
+                "/api/v1/found-items?page=1&pageSize=20&status=PENDING_HANDOVER", token);
+
+        // Then
+        assertThat(unfiltered.statusCode()).isEqualTo(200);
+        JsonNode unfilteredJson = mapper.readTree(unfiltered.body());
+        assertThat(unfilteredJson.get("data").toString()).doesNotContain(dueDraft);
+        assertThat(unfilteredJson.get("data").toString()).contains(futureDraft, "EXPIRED");
+        assertThat(mapper.readTree(drafts.body()).get("meta").get("totalItems").asLong()).isOne();
+        assertThat(mapper.readTree(active.body()).get("meta").get("totalItems").asLong()).isZero();
+        assertThat(mapper.readTree(pending.body()).get("meta").get("totalItems").asLong()).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM found_items WHERE id = ?",
+                Integer.class, Long.valueOf(dueDraft))).isZero();
+    }
+
+    @Test
+    void dueDraftCurlRegistrationAndDetailReturnConcealedLifecycleResult() throws Exception {
+        // Given
+        User owner = user();
+        String token = tokens.issue(owner).value();
+        String itemId = createDraft(token);
+        Long imageId = jdbc.queryForObject(
+                "SELECT id FROM found_item_images WHERE found_item_id = ? AND is_current",
+                Long.class, Long.valueOf(itemId));
+        jdbc.update("""
+                UPDATE found_items SET created_at = fixture.boundary - INTERVAL '24 hours',
+                    updated_at = fixture.boundary - INTERVAL '1 second', draft_expires_at = fixture.boundary FROM (SELECT clock_timestamp() AS boundary) fixture WHERE id = ?
+                """, Long.valueOf(itemId));
+
+        // When
+        CurlResult registration = curl("PATCH", "/api/v1/found-items/" + itemId + "/registration",
+                token, registration("LEFT_IN_PLACE", null, null));
+        CurlResult detail = curl("GET", "/api/v1/found-items/" + itemId, token, null);
+
+        // Then
+        assertThat(registration.status()).isEqualTo(404);
+        assertThat(mapper.readTree(registration.body()).get("code").asString()).isEqualTo("COMMON-004");
+        assertThat(detail.status()).isEqualTo(404);
+        assertThat(mapper.readTree(detail.body()).get("code").asString()).isEqualTo("COMMON-004");
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM found_items WHERE id = ?",
+                Integer.class, Long.valueOf(itemId))).isZero();
+        assertThat(jdbc.queryForMap("""
+                SELECT reason, status FROM object_deletion_outbox WHERE idempotency_key = ?
+                """, "found-item-image:" + imageId))
+                .containsEntry("reason", "DRAFT_EXPIRED")
+                .containsEntry("status", "PENDING");
+        System.out.println("R2A_MANUAL_HTTP PATCH=404 GET=404 error=COMMON-004 row=deleted outbox=PENDING");
+    }
+
     private User user() {
         return users.saveAndFlush(new User(UUID.randomUUID() + "@task6.example", "hash"));
     }
@@ -429,6 +612,55 @@ class FoundItemRegistrationApiIntegrationTest {
 
     private HttpResponse<String> imagePut(String id, String token, byte[] bytes) throws Exception {
         return multipart("/api/v1/found-items/" + id + "/image", token, "PUT", bytes);
+    }
+
+    private HttpResponse<String> get(String id, String token) throws Exception {
+        return getPath("/api/v1/found-items/" + id, token);
+    }
+
+    private HttpResponse<String> getPath(String path, String token) throws Exception {
+        return HttpClient.newHttpClient().send(HttpRequest.newBuilder(uri(path))
+                .header("Authorization", "Bearer " + token)
+                .GET().build(), HttpResponse.BodyHandlers.ofString());
+    }
+
+    private HttpResponse<String> confirm(String id, String token) throws Exception {
+        return HttpClient.newHttpClient().send(HttpRequest.newBuilder(
+                        uri("/api/v1/found-items/" + id + ":confirm-handover"))
+                .header("Authorization", "Bearer " + token)
+                .POST(HttpRequest.BodyPublishers.noBody()).build(), HttpResponse.BodyHandlers.ofString());
+    }
+
+    private CurlResult curl(String method, String path, String token, String body) throws Exception {
+        java.util.ArrayList<String> command = new java.util.ArrayList<>(java.util.List.of(
+                "curl", "-sS", "-i", "--max-time", "15", "-X", method,
+                "-H", "Authorization: Bearer " + token));
+        if (body != null) {
+            command.add("-H");
+            command.add("Content-Type: application/json");
+            command.add("--data");
+            command.add(body);
+        }
+        command.add("http://127.0.0.1:" + port + path);
+        Process process = new ProcessBuilder(command).redirectErrorStream(true).start();
+        String raw;
+        try {
+            raw = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+            assertThat(process.waitFor(15, TimeUnit.SECONDS)).isTrue();
+        } finally {
+            if (process.isAlive()) {
+                process.destroyForcibly();
+                process.waitFor(5, TimeUnit.SECONDS);
+            }
+        }
+        assertThat(process.exitValue()).isZero();
+        int bodyStart = raw.lastIndexOf("\r\n\r\n");
+        assertThat(bodyStart).isGreaterThan(0);
+        int status = Integer.parseInt(raw.substring(0, raw.indexOf("\r\n")).split(" ")[1]);
+        return new CurlResult(status, raw.substring(bodyStart + 4));
+    }
+
+    private record CurlResult(int status, String body) {
     }
 
     private HttpResponse<String> multipart(String path, String token, String method, byte[] bytes) throws Exception {

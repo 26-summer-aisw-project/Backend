@@ -51,6 +51,7 @@ public class FoundItemService {
     private final Clock clock;
     private final P0AuditService audit;
     private final JdbcTemplate jdbc;
+    private final FoundItemLifecycleCleanupService lifecycle;
 
     public FoundItemService(
             FoundItemRepository foundItemRepository,
@@ -61,7 +62,8 @@ public class FoundItemService {
             FoundItemProperties properties,
             Clock clock,
             P0AuditService audit,
-            JdbcTemplate jdbc
+            JdbcTemplate jdbc,
+            FoundItemLifecycleCleanupService lifecycle
     ) {
         this.foundItemRepository = foundItemRepository;
         this.handoverRepository = handoverRepository;
@@ -72,9 +74,10 @@ public class FoundItemService {
         this.clock = clock;
         this.audit = audit;
         this.jdbc = jdbc;
+        this.lifecycle = lifecycle;
     }
 
-    @Transactional
+    @Transactional(noRollbackFor = LostoryException.class)
     public FoundItemRegistrationResponse finalizeRegistration(
             Long id,
             Long requesterId,
@@ -86,6 +89,7 @@ public class FoundItemService {
         if (!item.getFinderId().equals(requesterId)) {
             throw new LostoryException(ErrorCode.RESOURCE_NOT_FOUND);
         }
+        lifecycle.admit(id);
         if (!item.isRegistrationMutable()) {
             throw new LostoryException(ErrorCode.INVALID_REQUEST);
         }
@@ -155,7 +159,7 @@ public class FoundItemService {
         return FoundItemRegistrationResponse.from(item);
     }
 
-    @Transactional
+    @Transactional(noRollbackFor = LostoryException.class)
     public FoundItemRegistrationResponse confirmHandover(Long id, Long requesterId) {
         HandoverSnapshot admission = currentHandover(id);
         FoundItem item = foundItemRepository.findByIdForUpdate(id)
@@ -163,6 +167,7 @@ public class FoundItemService {
         if (!item.getFinderId().equals(requesterId)) {
             throw new LostoryException(ErrorCode.RESOURCE_NOT_FOUND);
         }
+        lifecycle.admit(id);
         HandoverSnapshot current = currentHandover(id);
         rejectStaleAdmission(admission, current);
         if (current != null && current.status() == CenterHandoverStatus.CENTER_CONFIRMED) {
@@ -332,8 +337,9 @@ public class FoundItemService {
         return FoundItemResponse.from(foundItem);
     }
 
-    @Transactional(readOnly = true)
+    @Transactional(noRollbackFor = LostoryException.class)
     public FoundItemDetailResponse detail(Long id, Long requesterId, boolean admin) {
+        lifecycle.admit(id);
         FoundItem item = foundItemRepository.findById(id)
                 .orElseThrow(() -> new LostoryException(ErrorCode.RESOURCE_NOT_FOUND));
         if (!admin && !item.getFinderId().equals(requesterId)) {
@@ -342,8 +348,9 @@ public class FoundItemService {
         return FoundItemDetailResponse.from(item, suggestion(item));
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public FoundItemListResponse list(Long requesterId, FoundItemStatus status, int page, int pageSize) {
+        lifecycle.remediateDueForFinder(requesterId);
         PageRequest pageable = PageRequest.of(page - 1, pageSize, Sort.by(Sort.Direction.DESC, "createdAt"));
         Page<FoundItem> result = status == null
                 ? foundItemRepository.findByFinderId(requesterId, pageable)

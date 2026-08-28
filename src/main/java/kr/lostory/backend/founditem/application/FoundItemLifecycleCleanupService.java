@@ -5,6 +5,8 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
 import kr.lostory.backend.config.FoundItemProperties;
+import kr.lostory.backend.common.exception.ErrorCode;
+import kr.lostory.backend.common.exception.LostoryException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -35,6 +37,69 @@ public class FoundItemLifecycleCleanupService {
     @Transactional
     public CleanupResult runCleanup() {
         return cleanupAt(clock.instant());
+    }
+
+    @Transactional(noRollbackFor = LostoryException.class)
+    public void admit(Long itemId) {
+        List<LifecycleRow> rows = jdbc.query("""
+                SELECT id, status, draft_expires_at, expired_at
+                FROM found_items WHERE id = ? FOR UPDATE
+                """, (result, row) -> new LifecycleRow(
+                        result.getLong("id"), result.getString("status"),
+                        result.getTimestamp("draft_expires_at"), result.getTimestamp("expired_at")), itemId);
+        if (rows.isEmpty()) {
+            return;
+        }
+        Instant now = databaseNow();
+        LifecycleRow item = rows.getFirst();
+        if (!item.isDue(now)) {
+            return;
+        }
+        remediate(item, now);
+        throw new LostoryException(ErrorCode.RESOURCE_NOT_FOUND);
+    }
+
+    @Transactional
+    public void remediateDueForFinder(Long finderId) {
+        Instant now = databaseNow();
+        Timestamp boundary = Timestamp.from(now);
+        List<LifecycleRow> rows = jdbc.query("""
+                SELECT id, status, draft_expires_at, expired_at
+                FROM found_items
+                WHERE finder_id = ? AND (
+                    (status = 'DRAFT' AND draft_expires_at <= ?)
+                    OR (status IN ('ACTIVE', 'PENDING_HANDOVER') AND expired_at <= ?)
+                )
+                ORDER BY id FOR UPDATE
+                """, (result, row) -> new LifecycleRow(
+                        result.getLong("id"), result.getString("status"),
+                        result.getTimestamp("draft_expires_at"), result.getTimestamp("expired_at")),
+                finderId, boundary, boundary);
+        rows.forEach(item -> remediate(item, now));
+    }
+
+    private Instant databaseNow() {
+        return jdbc.queryForObject("SELECT clock_timestamp()", Timestamp.class).toInstant();
+    }
+
+    private void remediate(LifecycleRow item, Instant now) {
+        Timestamp boundary = Timestamp.from(now);
+        if (item.status().equals("DRAFT")) {
+            enqueueImages(item.id(), "DRAFT_EXPIRED", now);
+            jdbc.update("DELETE FROM match_candidates WHERE item_id = ?", item.id());
+            jdbc.update("DELETE FROM found_items WHERE id = ?", item.id());
+            return;
+        }
+        int expired = jdbc.update("""
+                UPDATE found_items SET status = 'EXPIRED', updated_at = ?
+                WHERE id = ? AND status IN ('ACTIVE', 'PENDING_HANDOVER')
+                """, boundary, item.id());
+        if (expired > 0) {
+            jdbc.update("""
+                    UPDATE lost_reports SET candidates_stale = true, updated_at = ?
+                    WHERE status = 'OPEN' AND expired_at > ? AND candidates_stale = false
+                    """, boundary, boundary);
+        }
     }
 
     private CleanupResult cleanupAt(Instant now) {
@@ -95,5 +160,14 @@ public class FoundItemLifecycleCleanupService {
     }
 
     public record CleanupResult(int deletedDrafts, int expiredItems, int queuedMedia) {
+    }
+
+    private record LifecycleRow(Long id, String status, Timestamp draftExpiresAt, Timestamp expiredAt) {
+        private boolean isDue(Instant now) {
+            Timestamp expiresAt = status.equals("DRAFT")
+                    ? draftExpiresAt
+                    : status.equals("ACTIVE") || status.equals("PENDING_HANDOVER") ? expiredAt : null;
+            return expiresAt != null && !expiresAt.toInstant().isAfter(now);
+        }
     }
 }

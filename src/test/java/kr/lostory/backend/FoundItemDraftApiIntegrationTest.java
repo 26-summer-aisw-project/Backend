@@ -178,9 +178,9 @@ class FoundItemDraftApiIntegrationTest {
         JsonNode defaultsJson = new ObjectMapper().readTree(defaults.body());
         assertThat(defaultsJson.get("meta").get("page").asInt()).isOne();
         assertThat(defaultsJson.get("meta").get("pageSize").asInt()).isEqualTo(20);
-        JsonNode staleJson = new ObjectMapper().readTree(staleDraft.body());
-        assertThat(staleJson.get("status").asString()).isEqualTo("DRAFT");
-        assertThat(Instant.parse(staleJson.get("draftExpiresAt").asString())).isBefore(Instant.now());
+        assertError(staleDraft, 404, "COMMON-004");
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM found_items WHERE id = ?",
+                Integer.class, Long.valueOf(firstId))).isZero();
         assertSafe(ownerDetail.body());
         assertSafe(adminDetail.body());
         assertSafe(foreignDetail.body());

@@ -42,6 +42,7 @@ public class FoundItemImageService {
     private final FoundItemProperties properties;
     private final ObjectStorageProperties storageProperties;
     private final Clock clock;
+    private final FoundItemLifecycleCleanupService lifecycle;
 
     public FoundItemImageService(
             FoundItemRepository foundItemRepository,
@@ -53,7 +54,8 @@ public class FoundItemImageService {
             ObjectStorage storage,
             FoundItemProperties properties,
             ObjectStorageProperties storageProperties,
-            Clock clock
+            Clock clock,
+            FoundItemLifecycleCleanupService lifecycle
     ) {
         this.foundItemRepository = foundItemRepository;
         this.imageRepository = imageRepository;
@@ -65,6 +67,7 @@ public class FoundItemImageService {
         this.properties = properties;
         this.storageProperties = storageProperties;
         this.clock = clock;
+        this.lifecycle = lifecycle;
     }
 
     public FoundItem createDraft(Long finderId, MultipartFile image) {
@@ -94,6 +97,7 @@ public class FoundItemImageService {
     }
 
     public FoundItemImageResponse upload(Long foundItemId, Long requesterId, MultipartFile image) {
+        lifecycle.admit(foundItemId);
         FoundItem item = foundItemRepository.findById(foundItemId)
                 .orElseThrow(() -> new LostoryException(ErrorCode.RESOURCE_NOT_FOUND));
         if (!item.getFinderId().equals(requesterId)) {
@@ -127,13 +131,14 @@ public class FoundItemImageService {
         }
     }
 
-    @Transactional(readOnly = true)
+    @Transactional(noRollbackFor = LostoryException.class)
     public FoundItemSignedUrlResponse getCurrent(
             Long foundItemId,
             Long requesterId,
             boolean admin,
             boolean centerManager
     ) {
+        lifecycle.admit(foundItemId);
         FoundItem item = foundItemRepository.findById(foundItemId)
                 .orElseThrow(() -> new LostoryException(ErrorCode.RESOURCE_NOT_FOUND));
         if (!admin && !item.getFinderId().equals(requesterId)
