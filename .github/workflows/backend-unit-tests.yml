@@ -85,10 +85,17 @@ jobs:
               "PUT /api/v1/found-items/{foundItemId}/image",
           })
           row_pattern = "|".join(re.escape(row) for row in sorted(allowed_rows))
+          allowed_error_codes = frozenset({
+              "AUTH-001", "AUTH-002", "AUTH-003",
+              "COMMON-001", "COMMON-002", "COMMON-003", "COMMON-004", "COMMON-005",
+              "MEDIA_NOT_AVAILABLE", "NONE", "POINT-001", "POINT-002",
+              "REPORT_NOT_OPEN", "STATE-001", "VISION-001",
+          })
+          code_pattern = "|".join(re.escape(code) for code in sorted(allowed_error_codes))
           pattern = re.compile(
               rf"java\.lang\.AssertionError: matrix row (?P<row>{row_pattern}) "
               r"expected HTTP (?P<expected>[0-9]{3}) actual HTTP (?P<actual>[0-9]{3}) "
-              r"code (?P<code>[A-Z]+-[0-9]{3}|NONE)"
+              rf"code (?P<code>{code_pattern})"
           )
 
           try:
