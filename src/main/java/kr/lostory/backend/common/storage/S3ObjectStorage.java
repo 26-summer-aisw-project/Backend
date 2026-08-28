@@ -58,7 +58,7 @@ public class S3ObjectStorage implements ObjectStorage, AutoCloseable {
         try {
             ResponseBytes<GetObjectResponse> response = client.getObjectAsBytes(builder -> builder.bucket(bucket).key(key));
             return new StoredObject(response.asByteArray(), response.response().contentType());
-        } catch (S3Exception exception) {
+        } catch (SdkException exception) {
             throw new ObjectStorageException("Object get failed.", exception);
         }
     }
@@ -93,6 +93,8 @@ public class S3ObjectStorage implements ObjectStorage, AutoCloseable {
                 return Optional.empty();
             }
             throw new ObjectStorageException("Object head failed.", exception);
+        } catch (SdkException exception) {
+            throw new ObjectStorageException("Object head failed.", exception);
         }
     }
 
@@ -100,7 +102,7 @@ public class S3ObjectStorage implements ObjectStorage, AutoCloseable {
     public void delete(String key) {
         try {
             client.deleteObject(builder -> builder.bucket(bucket).key(key));
-        } catch (S3Exception exception) {
+        } catch (SdkException exception) {
             throw new ObjectStorageException("Object delete failed.", exception);
         }
     }
@@ -113,7 +115,7 @@ public class S3ObjectStorage implements ObjectStorage, AutoCloseable {
                     .map(object -> head(object.key()))
                     .flatMap(Optional::stream)
                     .toList();
-        } catch (S3Exception exception) {
+        } catch (SdkException exception) {
             throw new ObjectStorageException("Object list failed.", exception);
         }
     }

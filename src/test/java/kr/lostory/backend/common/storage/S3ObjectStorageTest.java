@@ -13,12 +13,14 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.function.Consumer;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import software.amazon.awssdk.core.exception.SdkClientException;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
+import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 import software.amazon.awssdk.services.s3.model.S3Exception;
 import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 import software.amazon.awssdk.services.s3.presigner.model.GetObjectPresignRequest;
@@ -38,6 +40,88 @@ class S3ObjectStorageTest {
 
         // When / Then
         assertThat(storage.head("found-items/missing-object")).isEmpty();
+    }
+
+    @Test
+    void headReturnsEmptyForNoSuchKeyResponse() {
+        // Given
+        S3Client client = mock(S3Client.class);
+        S3Presigner presigner = mock(S3Presigner.class);
+        doThrow(NoSuchKeyException.builder().message("missing").build())
+                .when(client).headObject(any(HeadObjectRequest.class));
+        S3ObjectStorage storage = new S3ObjectStorage(
+                client, presigner, "private-bucket", Clock.systemUTC());
+
+        // When / Then
+        assertThat(storage.head("found-items/missing-object")).isEmpty();
+    }
+
+    @Test
+    void getNormalizesSdkClientFailureAndRetainsCause() {
+        // Given
+        S3Client client = mock(S3Client.class);
+        S3Presigner presigner = mock(S3Presigner.class);
+        SdkClientException failure = SdkClientException.create("transport");
+        doThrow(failure).when(client).getObjectAsBytes(any(Consumer.class));
+        S3ObjectStorage storage = new S3ObjectStorage(
+                client, presigner, "private-bucket", Clock.systemUTC());
+
+        // When / Then
+        assertThatThrownBy(() -> storage.get("found-items/private-object"))
+                .isInstanceOf(ObjectStorageException.class)
+                .hasMessage("Object get failed.")
+                .hasCause(failure);
+    }
+
+    @Test
+    void headNormalizesSdkClientFailureAndRetainsCause() {
+        // Given
+        S3Client client = mock(S3Client.class);
+        S3Presigner presigner = mock(S3Presigner.class);
+        SdkClientException failure = SdkClientException.create("transport");
+        doThrow(failure).when(client).headObject(any(HeadObjectRequest.class));
+        S3ObjectStorage storage = new S3ObjectStorage(
+                client, presigner, "private-bucket", Clock.systemUTC());
+
+        // When / Then
+        assertThatThrownBy(() -> storage.head("found-items/private-object"))
+                .isInstanceOf(ObjectStorageException.class)
+                .hasMessage("Object head failed.")
+                .hasCause(failure);
+    }
+
+    @Test
+    void deleteNormalizesSdkClientFailureAndRetainsCause() {
+        // Given
+        S3Client client = mock(S3Client.class);
+        S3Presigner presigner = mock(S3Presigner.class);
+        SdkClientException failure = SdkClientException.create("transport");
+        doThrow(failure).when(client).deleteObject(any(Consumer.class));
+        S3ObjectStorage storage = new S3ObjectStorage(
+                client, presigner, "private-bucket", Clock.systemUTC());
+
+        // When / Then
+        assertThatThrownBy(() -> storage.delete("found-items/private-object"))
+                .isInstanceOf(ObjectStorageException.class)
+                .hasMessage("Object delete failed.")
+                .hasCause(failure);
+    }
+
+    @Test
+    void listNormalizesSdkClientFailureAndRetainsCause() {
+        // Given
+        S3Client client = mock(S3Client.class);
+        S3Presigner presigner = mock(S3Presigner.class);
+        SdkClientException failure = SdkClientException.create("transport");
+        doThrow(failure).when(client).listObjectsV2Paginator(any(Consumer.class));
+        S3ObjectStorage storage = new S3ObjectStorage(
+                client, presigner, "private-bucket", Clock.systemUTC());
+
+        // When / Then
+        assertThatThrownBy(() -> storage.list("found-items/"))
+                .isInstanceOf(ObjectStorageException.class)
+                .hasMessage("Object list failed.")
+                .hasCause(failure);
     }
 
     @Test

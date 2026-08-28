@@ -18,6 +18,7 @@ import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.TimeUnit;
 import kr.lostory.backend.auth.JwtTokenService;
 import kr.lostory.backend.common.storage.ObjectStorage;
+import kr.lostory.backend.common.storage.ObjectStorageException;
 import kr.lostory.backend.user.domain.User;
 import kr.lostory.backend.user.repository.UserRepository;
 import org.junit.jupiter.api.Test;
@@ -31,6 +32,7 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
+import software.amazon.awssdk.core.exception.SdkClientException;
 
 @ActiveProfiles("test")
 @Import(PostgresTestContainerConfig.class)
@@ -304,6 +306,30 @@ class CandidateAccessApiIntegrationTest {
 				"finderId", "foundLocation", "scoreBreakdown");
 		assertThat(jdbc.queryForObject("SELECT candidates_stale FROM lost_reports WHERE id = ?",
 				Boolean.class, reportId)).isFalse();
+	}
+
+	@Test
+	void unlockedCandidateOmitsThumbnailWhenNormalizedSdkClientFailureOccurs() throws Exception {
+		// Given
+		User owner = user(10);
+		long reportId = report(owner.getId());
+		long itemId = item(owner.getId());
+		jdbc.update("INSERT INTO found_item_images (found_item_id, original_filename, object_key, is_current, "
+				+ "analysis_generation, upload_operation_id, content_type, size_bytes, created_at) "
+				+ "VALUES (?, 'private.jpg', 'private-object-key', true, 0, ?, 'image/jpeg', 3, now())",
+				itemId, UUID.randomUUID());
+		when(storage.head("private-object-key")).thenThrow(new ObjectStorageException(
+				"Object head failed.", SdkClientException.create("transport")));
+		assertThat(post(reportId, owner, UUID.randomUUID().toString()).statusCode()).isEqualTo(200);
+
+		// When
+		HttpResponse<String> response = get(reportId, owner);
+
+		// Then
+		assertThat(response.statusCode()).isEqualTo(200);
+		JsonNode entry = json.readTree(response.body()).get("data").get(0);
+		assertThat(entry.has("thumbnailUrl")).isFalse();
+		assertThat(response.body()).doesNotContain("SdkClientException", "transport", "Object head failed");
 	}
 
 	private User user(int balance) {
