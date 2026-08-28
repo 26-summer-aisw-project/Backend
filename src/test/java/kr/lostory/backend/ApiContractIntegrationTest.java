@@ -43,7 +43,8 @@ class ApiContractIntegrationTest {
 			HttpRequest request = fixtures.request(row, context);
 			HttpResponse<String> response = httpClient.send(request,
 				HttpResponse.BodyHandlers.ofString());
-			assertThat(response.statusCode()).as(row.key()).isEqualTo(row.successStatus());
+			assertThat(response.statusCode()).as("matrix row %s expected HTTP %d actual HTTP %d",
+				row.key(), row.successStatus(), response.statusCode()).isEqualTo(row.successStatus());
 			JsonNode body = json.readTree(response.body());
 			assertThat(body.propertyNames()).as(row.key() + " success fields")
 				.containsExactlyInAnyOrderElementsOf(row.successFields());
