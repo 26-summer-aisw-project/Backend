@@ -50,7 +50,7 @@
   { "code": "STATE-001", "httpStatus": 409, "replay": false, "meaning": "invalid-state" },
   { "code": "AUTH-001", "httpStatus": 409, "replay": false, "meaning": "duplicate-email" },
   { "code": "AUTH-002", "httpStatus": 401, "replay": false, "meaning": "invalid-credentials" },
-  { "code": "AUTH-003", "httpStatus": 401, "replay": false, "meaning": "invalid-activation-token" },
+  { "code": "AUTH-003", "httpStatus": 401, "replay": false, "meaning": "invalid-access-token" },
   { "code": "POINT-001", "httpStatus": 409, "replay": false, "meaning": "idempotency-key-conflict" },
   { "code": "POINT-002", "httpStatus": 409, "replay": false, "meaning": "insufficient-points" },
   { "code": null, "httpStatus": 200, "replay": true, "meaning": "same-report-existing-access-with-valid-key" }
@@ -523,6 +523,7 @@ P1 센터 수락 전에는 `PATCH /found-items/{itemId}/registration`으로 인�
 > POST `/partner-manager-activations/{activationToken}`
 
 - 공개 경로에서 새 관리 계정이 비밀번호를 설정하고 대시보드 전용으로 활성화된다. 토큰은 24시간·1회 사용이며 성공·실패 응답이나 로그에 다시 노출하지 않는다.
+- 잘못된 형식·알 수 없음·만료·재발급으로 대체됨·이미 사용된 활성화 capability는 모두 `HTTP 404 COMMON-004`로 처리하며, 상태나 토큰 세부 정보를 구분해 노출하지 않는다.
 - `password`는 UTF-8 기준 양끝을 포함해 8바이트 이상 72바이트 이하여야 한다.
 
 **요청 payload**
