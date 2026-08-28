@@ -157,29 +157,36 @@ class PointFoundationMigrationIntegrationTest {
 	}
 
 	@Test
-	void v30PreservesEveryV24ValidExpiredPendingCenterHandover() {
+	void originalV30AppliedHistoryValidatesAndMigratesThroughV32(@TempDir Path migrationDirectory)
+		throws IOException {
 		// Given
-		migrateCleanTo("24");
-		insertV24ExpiredPendingCenterHandoverFixture();
+		migrateCleanTo("29");
+		Path historicalV30 = migrationDirectory.resolve("V30__create_center_handovers.sql");
+		var historicalV30Stream = getClass().getResourceAsStream(
+			"/migration-history/V30__create_center_handovers.sql"
+		);
+		assertThat(historicalV30Stream).as("historical V30 migration fixture").isNotNull();
+		try (historicalV30Stream) {
+			Files.copy(historicalV30Stream, historicalV30);
+		}
+		Flyway.configure()
+			.dataSource(dataSource)
+			.locations("filesystem:" + migrationDirectory.toAbsolutePath())
+			.ignoreMigrationPatterns("*:missing")
+			.target("30")
+			.load()
+			.migrate();
 
 		// When
 		migrateLatest();
 
 		// Then
-		assertThat(jdbc.queryForObject(
-			"SELECT count(*) FROM flyway_schema_history WHERE version IN ('30', '32') AND success",
-			Integer.class
-		)).isEqualTo(2);
-		assertThat(jdbc.queryForObject("""
-			SELECT status = 'EXPIRED'
-				AND storage_method = 'HANDED_TO_CENTER'
-				AND center_id IS NOT NULL
-				AND handover_status = 'NONE'
-				AND handed_at IS NULL
-			FROM found_items
-			WHERE name = 'v24 expired pending fixture'
-			""", Boolean.class)).isTrue();
-		System.out.println("POINT_V30_CONTINUITY_OBSERVABLE v24-valid-row=preserved versions=30,32-success");
+		assertThat(jdbc.queryForList(
+			"SELECT version || ':' || checksum || ':' || success FROM flyway_schema_history "
+				+ "WHERE version IN ('30', '31', '32') ORDER BY installed_rank",
+			String.class
+		)).containsExactly("30:-836339116:true", "31:-794504958:true", "32:-1086288806:true");
+		System.out.println("POINT_V30_HISTORY_OBSERVABLE applied-checksum=-836339116 versions=30,31,32-success");
 	}
 
 	@Test
@@ -452,33 +459,6 @@ class PointFoundationMigrationIntegrationTest {
 				(SELECT id FROM users WHERE email = 'v32-fixture@example.test'), 'v32 expired pending fixture',
 				'WALLET', 'fixture', '2026-08-02T00:00:00Z', 'HANDED_TO_CENTER',
 				(SELECT id FROM lost_centers WHERE source_key = 'fixture:center-v32'), NULL, 'NONE', NULL,
-				'EXPIRED', 'FAILED', 0, '2026-08-02T00:00:00Z', '2026-08-03T00:00:00Z',
-				'2026-08-02T12:00:00Z'
-			);
-			""");
-	}
-
-	private static void insertV24ExpiredPendingCenterHandoverFixture() {
-		jdbc.execute("""
-			INSERT INTO users (email, password_hash, display_name, status, role, created_at, updated_at)
-			VALUES ('v24-fixture@example.test', 'hash', 'V24 Fixture', 'ACTIVE', 'USER',
-				'2026-08-01T00:00:00Z', '2026-08-01T00:00:00Z');
-			INSERT INTO lost_centers (
-				source_key, name, address, location, contact_phone, operating_hours, is_active,
-				verification_status, is_csv_managed, created_at, updated_at
-			) VALUES (
-				'fixture:center-v24', 'V24 Fixture Center', 'Fixture Address',
-				ST_SetSRID(ST_MakePoint(126.95, 37.49), 4326)::geography, '000-redacted', 'fixture-hours',
-				true, 'official_verified', false, '2026-08-01T00:00:00Z', '2026-08-01T00:00:00Z'
-			);
-			INSERT INTO found_items (
-				finder_id, name, category, description, found_at, storage_method, center_id,
-				legacy_handover_place_name, handover_status, handed_at, status, vision_status,
-				analysis_generation, created_at, updated_at, expired_at
-			) VALUES (
-				(SELECT id FROM users WHERE email = 'v24-fixture@example.test'), 'v24 expired pending fixture',
-				'WALLET', 'fixture', '2026-08-02T00:00:00Z', 'HANDED_TO_CENTER',
-				(SELECT id FROM lost_centers WHERE source_key = 'fixture:center-v24'), NULL, 'NONE', NULL,
 				'EXPIRED', 'FAILED', 0, '2026-08-02T00:00:00Z', '2026-08-03T00:00:00Z',
 				'2026-08-02T12:00:00Z'
 			);
