@@ -60,12 +60,13 @@ public class PartnerActivationDeliveryCipher {
 
     private static byte[] aad(Long partnershipId, Long activationTokenId, Instant expiresAt, String keyVersion) {
         byte[] version = keyVersion.getBytes(StandardCharsets.UTF_8);
+        Instant databaseExpiresAt = expiresAt.plusNanos(500).truncatedTo(ChronoUnit.MICROS);
         return ByteBuffer.allocate(Integer.BYTES + Long.BYTES * 3 + Integer.BYTES * 2 + version.length)
                 .putInt(1)
                 .putLong(partnershipId)
                 .putLong(activationTokenId)
-                .putLong(expiresAt.getEpochSecond())
-                .putInt(expiresAt.truncatedTo(ChronoUnit.MICROS).getNano())
+                .putLong(databaseExpiresAt.getEpochSecond())
+                .putInt(databaseExpiresAt.getNano())
                 .putInt(version.length)
                 .put(version)
                 .array();

@@ -4,7 +4,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.security.SecureRandom;
 import java.time.Instant;
-import java.time.temporal.ChronoUnit;
 import java.util.Base64;
 import kr.lostory.backend.config.PartnerDeliveryProperties;
 import kr.lostory.backend.partner.application.PartnerActivationDeliveryCipher;
@@ -14,17 +13,17 @@ import org.junit.jupiter.api.Test;
 class PartnerActivationDeliveryCipherTimestampPrecisionTest {
 
     @Test
-    void decryptsDeliveryReloadedWithPostgresMicrosecondExpiryPrecision() {
+    void decryptsDeliveryReloadedAfterPostgresRoundsExpiryIntoNextSecond() {
         // Given
         PartnerActivationDeliveryCipher cipher = new PartnerActivationDeliveryCipher(
                 new PartnerDeliveryProperties(Base64.getEncoder().encodeToString(new byte[32]), "test-v1"),
                 new SecureRandom());
-        Instant expiresAt = Instant.parse("2026-08-29T00:00:00.123456789Z");
+        Instant expiresAt = Instant.parse("2026-08-29T00:00:00.999999789Z");
         PartnerActivationDelivery encrypted = cipher.encrypt("https://example.test/activate", 10L, 20L,
                 expiresAt, Instant.parse("2026-08-28T00:00:00Z"));
         PartnerActivationDelivery reloaded = new PartnerActivationDelivery(encrypted.getPartnershipId(),
                 encrypted.getActivationTokenId(), encrypted.getCiphertext(), encrypted.getNonce(),
-                encrypted.getKeyVersion(), expiresAt.truncatedTo(ChronoUnit.MICROS), encrypted.getCreatedAt());
+                encrypted.getKeyVersion(), Instant.parse("2026-08-29T00:00:01Z"), encrypted.getCreatedAt());
 
         // When
         String decrypted = cipher.decrypt(reloaded);
