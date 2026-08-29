@@ -109,11 +109,20 @@ jobs:
               r"expected HTTP 200 actual HTTP 500 code COMMON\-005 "
               rf"handler=(?P<handler>{handler_pattern})"
           )
+          data_access_subtype_failure_pattern = re.compile(
+              r"^java\.lang\.AssertionError: matrix row POST /api/v1/found-items/\{id\}:confirm\-handover expected HTTP 200 actual HTTP 500 code COMMON\-005 handler=DATA_ACCESS diagnostic=\{dataAccessSubtype=(INTEGRITY|OTHER)\}$"
+          )
 
           try:
               failures = ET.parse(report).getroot().iter("failure")
               for failure in failures:
                   message = failure.attrib.get("message", "")
+                  data_access_subtype_match = data_access_subtype_failure_pattern.fullmatch(message)
+                  if data_access_subtype_match:
+                      print(f"matrix row {handler_row} expected HTTP 200 actual HTTP 500 "
+                            f"code COMMON-005 handler=DATA_ACCESS diagnostic={{dataAccessSubtype="
+                            f"{data_access_subtype_match.group(1)}}}")
+                      break
                   handler_match = handler_failure_pattern.fullmatch(message)
                   if handler_match:
                       print(f"matrix row {handler_row} expected HTTP 200 actual HTTP 500 "

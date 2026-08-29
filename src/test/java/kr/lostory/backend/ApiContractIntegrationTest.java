@@ -28,6 +28,7 @@ import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.dao.DataAccessException;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockReset;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
@@ -66,9 +67,11 @@ class ApiContractIntegrationTest {
 	@Test
 	void everyMatrixRowHasAValidRoleAwareRealHttpSuccessFixture() throws Exception {
 		AtomicReference<String> genericHandlerCategory = new AtomicReference<>("NOT_OBSERVED");
+		AtomicReference<String> dataAccessSubtype = new AtomicReference<>();
 		doAnswer(invocation -> {
 			Exception exception = invocation.getArgument(0, Exception.class);
 			genericHandlerCategory.set(matrixUnexpectedHandlerCategory(exception));
+			dataAccessSubtype.set(matrixDataAccessSubtype(exception));
 			return invocation.callRealMethod();
 		}).when(globalExceptionHandler).handleUnexpectedException(any(Exception.class));
 		assertThat(ApiContractMatrix.OPERATIONS).hasSize(32);
@@ -78,6 +81,7 @@ class ApiContractIntegrationTest {
 		for (ApiContractMatrix.Operation row : ApiContractMatrix.OPERATIONS) {
 			HttpRequest request = fixtures.request(row, context);
 			genericHandlerCategory.set("NOT_OBSERVED");
+			dataAccessSubtype.set(null);
 			HttpResponse<String> response = httpClient.send(request,
 				HttpResponse.BodyHandlers.ofString());
 			String errorCode = matrixErrorCode(response.body());
@@ -85,9 +89,16 @@ class ApiContractIntegrationTest {
 					&& row.successStatus() == 200 && response.statusCode() == 500
 					&& errorCode.equals("COMMON-005")
 				? " handler=" + genericHandlerCategory.get() : "";
+			String subtypeDiagnostic = row.key().equals(HANDLER_DIAGNOSTIC_ROW)
+					&& row.successStatus() == 200 && response.statusCode() == 500
+					&& errorCode.equals("COMMON-005")
+					&& genericHandlerCategory.get().equals("DATA_ACCESS")
+					&& dataAccessSubtype.get() != null
+				? " diagnostic={dataAccessSubtype=" + dataAccessSubtype.get() + "}" : "";
 			assertThat(response.statusCode())
-				.withFailMessage("matrix row %s expected HTTP %d actual HTTP %d code %s%s",
-					row.key(), row.successStatus(), response.statusCode(), errorCode, handlerDiagnostic)
+				.withFailMessage("matrix row %s expected HTTP %d actual HTTP %d code %s%s%s",
+					row.key(), row.successStatus(), response.statusCode(), errorCode, handlerDiagnostic,
+					subtypeDiagnostic)
 				.isEqualTo(row.successStatus());
 			JsonNode body = json.readTree(response.body());
 			assertThat(body.propertyNames()).as(row.key() + " success fields")
@@ -208,6 +219,14 @@ class ApiContractIntegrationTest {
 			"NOT_OBSERVED")).isEqualTo(MATRIX_HANDLER_CATEGORIES);
 	}
 
+	@Test
+	void matrixDataAccessSubtypeUsesDirectExceptionType() {
+		assertThat(matrixDataAccessSubtype(new DataIntegrityViolationException("")))
+			.isEqualTo("INTEGRITY");
+		assertThat(matrixDataAccessSubtype(new DataAccessException("") {}))
+			.isEqualTo("OTHER");
+	}
+
 	private HttpResponse<String> get(long reportId, String token) throws Exception {
 		return HttpClient.newHttpClient().send(HttpRequest.newBuilder(URI.create(
 				"http://localhost:" + port + "/api/v1/lost-reports/" + reportId + "/candidates"))
@@ -279,5 +298,15 @@ class ApiContractIntegrationTest {
 			return "INVALID_ARGUMENT";
 		}
 		return "OTHER";
+	}
+
+	private String matrixDataAccessSubtype(Exception exception) {
+		if (exception instanceof DataIntegrityViolationException) {
+			return "INTEGRITY";
+		}
+		if (exception instanceof DataAccessException) {
+			return "OTHER";
+		}
+		return null;
 	}
 }
