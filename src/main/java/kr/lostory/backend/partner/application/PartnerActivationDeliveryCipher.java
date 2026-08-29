@@ -5,6 +5,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.security.SecureRandom;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import javax.crypto.Cipher;
 import javax.crypto.spec.GCMParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
@@ -64,7 +65,7 @@ public class PartnerActivationDeliveryCipher {
                 .putLong(partnershipId)
                 .putLong(activationTokenId)
                 .putLong(expiresAt.getEpochSecond())
-                .putInt(expiresAt.getNano())
+                .putInt(expiresAt.truncatedTo(ChronoUnit.MICROS).getNano())
                 .putInt(version.length)
                 .put(version)
                 .array();
