@@ -23,6 +23,8 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import kr.lostory.backend.auth.JwtTokenService;
 import kr.lostory.backend.common.storage.ObjectStorage;
+import kr.lostory.backend.partner.application.PartnerActivationDeliveryCipher;
+import kr.lostory.backend.partner.domain.PartnerActivationDeliveryRepository;
 import kr.lostory.backend.user.domain.User;
 import kr.lostory.backend.user.domain.UserRole;
 import kr.lostory.backend.user.repository.UserRepository;
@@ -60,6 +62,8 @@ class P1ManualHttpQaIntegrationTest {
 	@Autowired UserRepository users;
 	@Autowired JdbcTemplate jdbc;
 	@Autowired ObjectMapper json;
+	@Autowired PartnerActivationDeliveryRepository activationDeliveries;
+	@Autowired PartnerActivationDeliveryCipher deliveryCipher;
 	@MockitoBean ObjectStorage storage;
 	@MockitoBean Clock clock;
 
@@ -75,6 +79,7 @@ class P1ManualHttpQaIntegrationTest {
 		jdbc.update("DELETE FROM report_waypoints");
 		jdbc.update("DELETE FROM lost_reports");
 		jdbc.update("DELETE FROM center_handovers");
+		jdbc.update("DELETE FROM partner_activation_delivery_outbox");
 		jdbc.update("DELETE FROM center_activation_tokens");
 		jdbc.update("DELETE FROM center_partnerships");
 		jdbc.update("DELETE FROM found_item_vision_jobs");
@@ -149,7 +154,8 @@ class P1ManualHttpQaIntegrationTest {
 		Long partnershipId = body(created).path("partnershipId").asLong();
 		Observed approved = curl(new Request("partnership-approve", "POST",
 			"/api/v1/admin/partner-centers/" + partnershipId + ":approve", adminToken, null, null));
-		String activationUrl = body(approved).path("activationUrl").asString();
+		String activationUrl = deliveryCipher.decrypt(activationDeliveries
+			.findByPartnershipIdAndSupersededAtIsNull(partnershipId).orElseThrow());
 		String capability = activationUrl.substring(activationUrl.lastIndexOf('/') + 1);
 		Observed activated = curl(new Request("public-activation", "POST",
 			"/api/v1/partner-manager-activations/" + capability, null, null,
@@ -204,7 +210,7 @@ class P1ManualHttpQaIntegrationTest {
 		assertFields(finderSignup, 201, "id", "email", "displayName", "status", "roles");
 		assertThat(body(finderBalanceBefore).path("balance").asInt()).isEqualTo(10);
 		assertFields(created, 201, "partnershipId", "centerId", "status", "managerEmail");
-		assertFields(approved, 200, "partnershipId", "status", "activationUrl", "expiresAt");
+		assertFields(approved, 200, "partnershipId", "status", "expiresAt");
 		assertFields(activated, 200, "partnershipId", "centerId", "managerUserId", "status");
 		assertError(activationReplay, 404, "COMMON-004");
 		assertFields(signedImage, 200, "url", "expiresAt");

@@ -507,17 +507,17 @@ P1 센터 수락 전에는 `PATCH /found-items/{itemId}/registration`으로 인�
 #### approve-partner-center
 > POST `/admin/partner-centers/{partnershipId}:approve`
 
-- ADMIN이 파트너십을 승인하고 별도 채널 전달용 일회성 활성화 링크를 발급한다.
+- ADMIN이 파트너십을 승인하고 암호화된 일회성 활성화 전달 자료를 내구성 있게 기록한다.
 
 요청 본문 없이 호출한다.
 
 **응답 payload — 200 OK**
 
 ```json
-{ "partnershipId": "50", "status": "PENDING_ACTIVATION", "activationUrl": "https://app.example/partner-activation/<opaque-token>", "expiresAt": "2026-08-24T09:30:00Z" }
+{ "partnershipId": "50", "status": "PENDING_ACTIVATION", "expiresAt": "2026-08-24T09:30:00Z" }
 ```
 
-링크는 24시간·1회 사용이며 재발급은 이전 링크를 폐기한다. URL은 감사 로그에 기록하지 않는다.
+활성화 capability는 24시간·1회 사용이며 재발급은 이전 자료를 폐기한다. 암호문은 별도 통제된 외부 운영 절차에서 사람이 조회·복호화·전달하며, 이 API는 조회 엔드포인트나 SMTP/백그라운드 전달 작업을 제공하지 않는다. URL은 응답·감사 로그·평문 DB 열에 기록하지 않는다.
 
 #### activate-partner-manager
 > POST `/partner-manager-activations/{activationToken}`

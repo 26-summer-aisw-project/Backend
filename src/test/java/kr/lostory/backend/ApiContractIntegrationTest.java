@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import kr.lostory.backend.auth.JwtTokenService;
 import kr.lostory.backend.common.exception.ErrorCode;
+import kr.lostory.backend.partner.application.PartnerActivationDeliveryCipher;
+import kr.lostory.backend.partner.domain.PartnerActivationDeliveryRepository;
 import kr.lostory.backend.user.domain.User;
 import kr.lostory.backend.user.domain.UserRole;
 import kr.lostory.backend.user.repository.UserRepository;
@@ -42,6 +44,8 @@ class ApiContractIntegrationTest {
 	@Autowired JwtTokenService tokens;
 	@Autowired UserRepository users;
 	@Autowired JdbcTemplate jdbc;
+	@Autowired PartnerActivationDeliveryRepository activationDeliveries;
+	@Autowired PartnerActivationDeliveryCipher deliveryCipher;
 	private final ObjectMapper json = new ObjectMapper();
 	private final ObjectMapper matrixDiagnosticJson = new ObjectMapper(JsonFactory.builder()
 		.enable(StreamReadFeature.STRICT_DUPLICATE_DETECTION).build());
@@ -50,7 +54,8 @@ class ApiContractIntegrationTest {
 	@Test
 	void everyMatrixRowHasAValidRoleAwareRealHttpSuccessFixture() throws Exception {
 		assertThat(ApiContractMatrix.OPERATIONS).hasSize(32);
-		ApiContractSuccessFixture fixtures = new ApiContractSuccessFixture(port, tokens, users, jdbc, json);
+		ApiContractSuccessFixture fixtures = new ApiContractSuccessFixture(
+			port, tokens, users, jdbc, json, activationDeliveries, deliveryCipher);
 		ApiContractSuccessFixture.Context context = fixtures.seed();
 		for (ApiContractMatrix.Operation row : ApiContractMatrix.OPERATIONS) {
 			HttpRequest request = fixtures.request(row, context);

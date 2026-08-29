@@ -78,7 +78,7 @@ final class ApiContractMatrix {
 		op(Priority.P1, "POST", "/api/v1/admin/partner-centers", Security.ADMIN, 201, Body.JSON,
 			Set.of("partnershipId", "centerId", "status", "managerEmail")),
 		op(Priority.P1, "POST", "/api/v1/admin/partner-centers/{partnershipId}:approve", Security.ADMIN, 200,
-			Set.of("partnershipId"), Body.NONE, Set.of("partnershipId", "status", "activationUrl", "expiresAt")),
+			Set.of("partnershipId"), Body.NONE, Set.of("partnershipId", "status", "expiresAt")),
 		op(Priority.P1, "POST", "/api/v1/partner-manager-activations/{activationToken}", Security.PUBLIC, 200,
 			Set.of("activationToken"), Body.JSON, Set.of("partnershipId", "centerId", "managerUserId", "status")),
 		op(Priority.P1, "GET", "/api/v1/dashboard/handovers", Security.CENTER_MANAGER, 200,

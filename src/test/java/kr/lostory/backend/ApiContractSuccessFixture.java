@@ -1,6 +1,8 @@
 package kr.lostory.backend;
 
 import kr.lostory.backend.auth.JwtTokenService;
+import kr.lostory.backend.partner.application.PartnerActivationDeliveryCipher;
+import kr.lostory.backend.partner.domain.PartnerActivationDeliveryRepository;
 import kr.lostory.backend.user.domain.User;
 import kr.lostory.backend.user.domain.UserRole;
 import kr.lostory.backend.user.repository.UserRepository;
@@ -21,14 +23,19 @@ final class ApiContractSuccessFixture {
 	private final UserRepository users;
 	private final JdbcTemplate jdbc;
 	private final ObjectMapper json;
+	private final PartnerActivationDeliveryRepository activationDeliveries;
+	private final PartnerActivationDeliveryCipher deliveryCipher;
 
 	ApiContractSuccessFixture(int port, JwtTokenService tokens, UserRepository users,
-			JdbcTemplate jdbc, ObjectMapper json) {
+			JdbcTemplate jdbc, ObjectMapper json, PartnerActivationDeliveryRepository activationDeliveries,
+			PartnerActivationDeliveryCipher deliveryCipher) {
 		this.port = port;
 		this.tokens = tokens;
 		this.users = users;
 		this.jdbc = jdbc;
 		this.json = json;
+		this.activationDeliveries = activationDeliveries;
+		this.deliveryCipher = deliveryCipher;
 	}
 
 	Context seed() {
@@ -112,7 +119,8 @@ final class ApiContractSuccessFixture {
 			case "POST /api/v1/lost-reports" -> context.reportId = body.path("id").asLong();
 			case "POST /api/v1/admin/partner-centers" -> context.partnershipId = body.path("partnershipId").asLong();
 			case "POST /api/v1/admin/partner-centers/{partnershipId}:approve" -> {
-				String url = body.path("activationUrl").asString();
+				String url = deliveryCipher.decrypt(activationDeliveries
+					.findByPartnershipIdAndSupersededAtIsNull(context.partnershipId).orElseThrow());
 				context.activationToken = url.substring(url.lastIndexOf('/') + 1);
 			}
 			case "POST /api/v1/partner-manager-activations/{activationToken}" -> {

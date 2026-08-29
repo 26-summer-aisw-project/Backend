@@ -14,6 +14,8 @@ import java.util.Set;
 import java.util.UUID;
 import kr.lostory.backend.auth.JwtTokenService;
 import kr.lostory.backend.founditem.application.VisionJobWorker;
+import kr.lostory.backend.partner.application.PartnerActivationDeliveryCipher;
+import kr.lostory.backend.partner.domain.PartnerActivationDeliveryRepository;
 import kr.lostory.backend.user.domain.User;
 import kr.lostory.backend.user.domain.UserRole;
 import kr.lostory.backend.user.repository.UserRepository;
@@ -57,6 +59,8 @@ class P1EndToEndHttpIntegrationTest {
     @Autowired JwtTokenService tokens;
     @Autowired VisionJobWorker vision;
     @Autowired FoundItemDraftApiIntegrationTest.FakeObjectStorage storage;
+    @Autowired PartnerActivationDeliveryRepository activationDeliveries;
+    @Autowired PartnerActivationDeliveryCipher deliveryCipher;
 
     private final HttpClient http = HttpClient.newBuilder().connectTimeout(REQUEST_TIMEOUT).build();
     private final ObjectMapper json = new ObjectMapper();
@@ -73,6 +77,7 @@ class P1EndToEndHttpIntegrationTest {
         jdbc.update("DELETE FROM report_waypoints");
         jdbc.update("DELETE FROM lost_reports");
         jdbc.update("DELETE FROM center_handovers");
+        jdbc.update("DELETE FROM partner_activation_delivery_outbox");
         jdbc.update("DELETE FROM center_activation_tokens");
         jdbc.update("DELETE FROM center_partnerships");
         jdbc.update("DELETE FROM found_item_vision_jobs");
@@ -127,7 +132,8 @@ class P1EndToEndHttpIntegrationTest {
         String partnershipId = partnership.get("partnershipId").asString();
         JsonNode approved = expect(post("/api/v1/admin/partner-centers/" + partnershipId + ":approve",
                 adminToken, "{}"), 200);
-        String activationUrl = approved.get("activationUrl").asString();
+        String activationUrl = deliveryCipher.decrypt(activationDeliveries
+                .findByPartnershipIdAndSupersededAtIsNull(Long.valueOf(partnershipId)).orElseThrow());
         String activationToken = activationUrl.substring(activationUrl.lastIndexOf('/') + 1);
         HttpResponse<String> activated = post("/api/v1/partner-manager-activations/" + activationToken,
                 null, "{\"password\":\"%s\"}".formatted(PASSWORD));

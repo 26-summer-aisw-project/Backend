@@ -50,6 +50,10 @@ dependencies {
 
 tasks.named('test') {
 	useJUnitPlatform()
+	byte[] partnerDeliveryTestKey = new byte[32]
+	new java.security.SecureRandom().nextBytes(partnerDeliveryTestKey)
+	environment 'PARTNER_DELIVERY_ENCRYPTION_KEY', java.util.Base64.encoder.encodeToString(partnerDeliveryTestKey)
+	environment 'PARTNER_DELIVERY_ENCRYPTION_KEY_VERSION', 'test-v1'
 }
 
 tasks.named('processResources') {

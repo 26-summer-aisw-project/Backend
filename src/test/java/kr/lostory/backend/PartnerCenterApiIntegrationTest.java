@@ -23,6 +23,9 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import kr.lostory.backend.auth.JwtTokenService;
 import kr.lostory.backend.config.PartnerProperties;
+import kr.lostory.backend.partner.application.PartnerActivationDeliveryCipher;
+import kr.lostory.backend.partner.domain.PartnerActivationDelivery;
+import kr.lostory.backend.partner.domain.PartnerActivationDeliveryRepository;
 import kr.lostory.backend.user.domain.User;
 import kr.lostory.backend.user.domain.UserRole;
 import kr.lostory.backend.user.repository.UserRepository;
@@ -55,6 +58,8 @@ class PartnerCenterApiIntegrationTest {
     @Autowired UserRepository users;
     @Autowired JdbcTemplate jdbc;
     @Autowired Validator validator;
+    @Autowired PartnerActivationDeliveryRepository activationDeliveries;
+    @Autowired PartnerActivationDeliveryCipher deliveryCipher;
     private final HttpClient http = HttpClient.newHttpClient();
     private final ObjectMapper json = new ObjectMapper();
     private final List<ExecutorService> executors = new ArrayList<>();
@@ -62,6 +67,7 @@ class PartnerCenterApiIntegrationTest {
     @BeforeEach
     void clean() {
         jdbc.update("DELETE FROM audit_logs WHERE target_type = 'CENTER_PARTNERSHIP'");
+        jdbc.update("DELETE FROM partner_activation_delivery_outbox");
         jdbc.update("DELETE FROM center_activation_tokens");
         jdbc.update("DELETE FROM center_partnerships");
         jdbc.update("DELETE FROM users WHERE email LIKE 'task5-%@example.test'");
@@ -98,6 +104,22 @@ class PartnerCenterApiIntegrationTest {
     }
 
     @Test
+    void approvalReturnsOnlyNonSecretActivationMetadata() throws Exception {
+        User admin = user(UserRole.ADMIN);
+        Long partnership = partnership(admin, center(), "task5-metadata-only@example.test");
+
+        JsonNode body = json.readTree(approve(admin, partnership).body());
+
+        assertThat(body.propertyNames()).containsExactlyInAnyOrder("partnershipId", "status", "expiresAt");
+        assertThat(body.get("status").asString()).isEqualTo("PENDING_ACTIVATION");
+        PartnerActivationDelivery delivery = activationDeliveries
+                .findByPartnershipIdAndSupersededAtIsNull(partnership).orElseThrow();
+        String activationUrl = deliveryCipher.decrypt(delivery);
+        assertThat(delivery.getCiphertext()).isNotEqualTo(activationUrl.getBytes(StandardCharsets.UTF_8));
+        assertThat(dbText()).doesNotContain(activationUrl);
+    }
+
+    @Test
     void approveReissuesHashOnlyTwentyFourHourToken() throws Exception {
         User admin = user(UserRole.ADMIN);
         Long partnership = partnership(admin, center(), "task5-reissue@example.test");
@@ -108,6 +130,13 @@ class PartnerCenterApiIntegrationTest {
         assertThat(activate(currentToken).statusCode()).isEqualTo(200);
         assertThat(jdbc.queryForObject("SELECT extract(epoch FROM max(expires_at - issued_at)) "
                 + "FROM center_activation_tokens", Long.class)).isEqualTo(86400L);
+        assertThat(activationDeliveries.findAllByPartnershipIdOrderById(partnership)).satisfiesExactly(
+                oldDelivery -> assertThat(oldDelivery.getSupersededAt()).isNotNull(),
+                currentDelivery -> assertThat(currentDelivery.getSupersededAt()).isNull());
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM partner_activation_delivery_outbox "
+                + "WHERE partnership_id=? AND superseded_at IS NOT NULL", Integer.class, partnership)).isOne();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM partner_activation_delivery_outbox "
+                + "WHERE partnership_id=? AND superseded_at IS NULL", Integer.class, partnership)).isOne();
         assertThat(dbText()).doesNotContain(oldToken, currentToken, "activationUrl");
     }
 
@@ -123,8 +152,63 @@ class PartnerCenterApiIntegrationTest {
         HttpResponse<String> a = first.get(TIMEOUT, TimeUnit.SECONDS);
         HttpResponse<String> b = second.get(TIMEOUT, TimeUnit.SECONDS);
         assertThat(List.of(a.statusCode(), b.statusCode())).containsOnly(200);
-        assertThat(List.of(activate(token(a)), activate(token(b)))).extracting(HttpResponse::statusCode)
-                .containsExactlyInAnyOrder(200, 404);
+        List<String> capabilities = activationDeliveries.findAllByPartnershipIdOrderById(partnership).stream()
+                .map(deliveryCipher::decrypt)
+                .map(url -> url.substring(url.lastIndexOf('/') + 1))
+                .toList();
+        assertThat(capabilities).hasSize(2).doesNotHaveDuplicates();
+        List<Integer> activationStatuses = new ArrayList<>();
+        for (String capability : capabilities) activationStatuses.add(activate(capability).statusCode());
+        assertThat(activationStatuses).containsExactlyInAnyOrder(200, 404);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM partner_activation_delivery_outbox "
+                + "WHERE partnership_id=?", Integer.class, partnership)).isEqualTo(2);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM partner_activation_delivery_outbox "
+                + "WHERE partnership_id=? AND superseded_at IS NULL", Integer.class, partnership)).isOne();
+    }
+
+    @Test
+    void outboxPersistenceFailureRollsBackApproval() throws Exception {
+        User admin = user(UserRole.ADMIN);
+        Long partnership = partnership(admin, center(), "task5-outbox-rollback@example.test");
+        jdbc.execute("CREATE FUNCTION fail_partner_delivery_insert() RETURNS trigger LANGUAGE plpgsql "
+                + "AS 'BEGIN RAISE EXCEPTION ''forced delivery failure''; END'");
+        jdbc.execute("CREATE TRIGGER fail_partner_delivery BEFORE INSERT ON partner_activation_delivery_outbox "
+                + "FOR EACH ROW EXECUTE FUNCTION fail_partner_delivery_insert()");
+        try {
+            assertThat(approve(admin, partnership).statusCode()).isEqualTo(500);
+        } finally {
+            jdbc.execute("DROP TRIGGER fail_partner_delivery ON partner_activation_delivery_outbox");
+            jdbc.execute("DROP FUNCTION fail_partner_delivery_insert()");
+        }
+        assertThat(jdbc.queryForObject("SELECT status FROM center_partnerships WHERE id=?",
+                String.class, partnership)).isEqualTo("PENDING");
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM center_activation_tokens WHERE partnership_id=?",
+                Integer.class, partnership)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM partner_activation_delivery_outbox "
+                + "WHERE partnership_id=?", Integer.class, partnership)).isZero();
+    }
+
+    @Test
+    void auditFailureRollsBackEncryptedDeliveryAndToken() throws Exception {
+        User admin = user(UserRole.ADMIN);
+        Long partnership = partnership(admin, center(), "task5-audit-rollback@example.test");
+        jdbc.execute("CREATE FUNCTION fail_partner_approval_audit() RETURNS trigger LANGUAGE plpgsql "
+                + "AS 'BEGIN IF NEW.action = ''PARTNER_CENTER_APPROVED'' THEN "
+                + "RAISE EXCEPTION ''forced audit failure''; END IF; RETURN NEW; END'");
+        jdbc.execute("CREATE TRIGGER fail_partner_approval_audit BEFORE INSERT ON audit_logs "
+                + "FOR EACH ROW EXECUTE FUNCTION fail_partner_approval_audit()");
+        try {
+            assertThat(approve(admin, partnership).statusCode()).isEqualTo(500);
+        } finally {
+            jdbc.execute("DROP TRIGGER fail_partner_approval_audit ON audit_logs");
+            jdbc.execute("DROP FUNCTION fail_partner_approval_audit()");
+        }
+        assertThat(jdbc.queryForObject("SELECT status FROM center_partnerships WHERE id=?",
+                String.class, partnership)).isEqualTo("PENDING");
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM center_activation_tokens WHERE partnership_id=?",
+                Integer.class, partnership)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM partner_activation_delivery_outbox "
+                + "WHERE partnership_id=?", Integer.class, partnership)).isZero();
     }
 
     @Test
@@ -265,8 +349,7 @@ class PartnerCenterApiIntegrationTest {
         Long partnership = Long.valueOf(curlBody(created).get("partnershipId").asString());
         String approved = curl(List.of("-H", "Authorization: Bearer " + bearer, "-H", "Content-Type: application/json",
                 "-d", "{}", url("/api/v1/admin/partner-centers/" + partnership + ":approve")));
-        String activationUrl = curlBody(approved).get("activationUrl").asString();
-        String capability = activationUrl.substring(activationUrl.lastIndexOf('/') + 1);
+        String capability = token(curlBody(approved));
         String activated = curl(List.of("-X", "POST", "-H", "Content-Type: application/json", "-d", PASSWORD,
                 url("/api/v1/partner-manager-activations/" + capability)));
         String replay = curl(List.of("-X", "POST", "-H", "Content-Type: application/json", "-d", PASSWORD,
@@ -276,7 +359,6 @@ class PartnerCenterApiIntegrationTest {
                 + "COMMAND activate /<REDACTED_ACTIVATION_TOKEN>\nCREATE\n" + created
                 + "\nAPPROVE\n" + approved + "\nACTIVATE\n" + activated
                 + "\nREPLAY\n" + replay).replace(bearer, "<REDACTED_BEARER>")
-                .replace(activationUrl, "<REDACTED_ACTIVATION_URL>")
                 .replace(capability, "<REDACTED_ACTIVATION_TOKEN>").replace(email, "<REDACTED_MANAGER_EMAIL>")
                 .replaceAll("(\\\"(?:partnershipId|centerId|managerUserId)\\\":\\\")\\d+(\\\")",
                         "$1<REDACTED_RESOURCE_ID>$2");
@@ -287,10 +369,12 @@ class PartnerCenterApiIntegrationTest {
         assertThat(approved).contains("HTTP/1.1 200");
         assertThat(activated).contains("HTTP/1.1 200");
         assertThat(replay).contains("HTTP/1.1 404");
-        assertThat(sanitized).doesNotContain(bearer, activationUrl, capability, email)
+        assertThat(sanitized).doesNotContain(bearer, capability, email)
                 .doesNotMatch("(?s).*(?:partnershipId|centerId|managerUserId)\\\":\\\"\\d+.*")
-                .contains("<REDACTED_BEARER>", "<REDACTED_ACTIVATION_URL>", "<REDACTED_ACTIVATION_TOKEN>",
+                .contains("<REDACTED_BEARER>", "<REDACTED_ACTIVATION_TOKEN>",
                         "<REDACTED_RESOURCE_ID>");
+        System.out.println("MANUAL_PARTNER_ACTIVATION_OUTBOX_OBSERVABLE "
+                + "status=200 fields=partnershipId,status,expiresAt encrypted=true activation=200 replay=404");
     }
 
     private User user(UserRole role) {
@@ -341,7 +425,13 @@ class PartnerCenterApiIntegrationTest {
 
     private String token(HttpResponse<String> response) {
         assertThat(response.statusCode()).isEqualTo(200);
-        String url = json.readTree(response.body()).get("activationUrl").asString();
+        return token(json.readTree(response.body()));
+    }
+
+    private String token(JsonNode approval) {
+        Long partnershipId = Long.valueOf(approval.get("partnershipId").asString());
+        String url = deliveryCipher.decrypt(activationDeliveries
+                .findByPartnershipIdAndSupersededAtIsNull(partnershipId).orElseThrow());
         return url.substring(url.lastIndexOf('/') + 1);
     }
 
@@ -359,7 +449,9 @@ class PartnerCenterApiIntegrationTest {
 
     private String dbText() {
         return jdbc.queryForList("SELECT encode(token_hash,'hex'),expires_at::text,consumed_at::text,replaced::text "
-                + "FROM center_activation_tokens").toString() + auditText();
+                + "FROM center_activation_tokens").toString()
+                + jdbc.queryForList("SELECT key_version,expires_at::text,created_at::text,superseded_at::text "
+                + "FROM partner_activation_delivery_outbox").toString() + auditText();
     }
 
     private ExecutorService pool() {

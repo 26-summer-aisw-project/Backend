@@ -8,6 +8,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.Locale;
+import java.util.Optional;
 import kr.lostory.backend.audit.application.P0AuditService;
 import kr.lostory.backend.common.exception.ErrorCode;
 import kr.lostory.backend.common.exception.LostoryException;
@@ -17,6 +18,8 @@ import kr.lostory.backend.partner.domain.CenterActivationToken;
 import kr.lostory.backend.partner.domain.CenterActivationTokenRepository;
 import kr.lostory.backend.partner.domain.CenterPartnership;
 import kr.lostory.backend.partner.domain.CenterPartnershipRepository;
+import kr.lostory.backend.partner.domain.PartnerActivationDelivery;
+import kr.lostory.backend.partner.domain.PartnerActivationDeliveryRepository;
 import kr.lostory.backend.partner.domain.PartnershipStatus;
 import kr.lostory.backend.partner.presentation.ActivatePartnerManagerRequest;
 import kr.lostory.backend.partner.presentation.CreatePartnerCenterRequest;
@@ -40,6 +43,7 @@ public class PartnerCenterService {
 
     private final CenterPartnershipRepository partnerships;
     private final CenterActivationTokenRepository activationTokens;
+    private final PartnerActivationDeliveryRepository activationDeliveries;
     private final LostCenterRepository centers;
     private final UserRepository users;
     private final PasswordEncoder passwordEncoder;
@@ -47,6 +51,7 @@ public class PartnerCenterService {
     private final PartnerProperties properties;
     private final Clock clock;
     private final SecureRandom partnerSecureRandom;
+    private final PartnerActivationDeliveryCipher deliveryCipher;
 
     @Transactional
     public PartnerCenterResponses.Created create(Long adminId, CreatePartnerCenterRequest request) {
@@ -72,7 +77,13 @@ public class PartnerCenterService {
         if (partnership.getStatus() == PartnershipStatus.ACTIVE) {
             throw new LostoryException(ErrorCode.INVALID_STATE);
         }
-        activationTokens.findCurrentForUpdate(partnershipId).ifPresent(current -> {
+        Optional<CenterActivationToken> currentToken = activationTokens.findCurrentForUpdate(partnershipId);
+        Optional<PartnerActivationDelivery> currentDelivery = activationDeliveries.findCurrentForUpdate(partnershipId);
+        currentDelivery.ifPresent(delivery -> {
+            delivery.supersede(clock.instant());
+            activationDeliveries.saveAndFlush(delivery);
+        });
+        currentToken.ifPresent(current -> {
             current.replace();
             activationTokens.saveAndFlush(current);
         });
@@ -81,13 +92,16 @@ public class PartnerCenterService {
         partnerSecureRandom.nextBytes(rawToken);
         String encodedToken = TOKEN_ENCODER.encodeToString(rawToken);
         Instant expiresAt = now.plus(ACTIVATION_TTL);
-        activationTokens.saveAndFlush(new CenterActivationToken(partnershipId, sha256(rawToken), now, expiresAt));
+        CenterActivationToken token = activationTokens.saveAndFlush(
+                new CenterActivationToken(partnershipId, sha256(rawToken), now, expiresAt));
+        PartnerActivationDelivery delivery = deliveryCipher.encrypt(
+                properties.activationBaseUrl() + "/" + encodedToken,
+                partnershipId, token.getId(), expiresAt, now);
+        activationDeliveries.saveAndFlush(delivery);
         partnership.awaitActivation(now);
         partnerships.saveAndFlush(partnership);
         audit.partnerCenterApproved(adminId, partnershipId);
-        return new PartnerCenterResponses.Approved(
-                partnershipId.toString(), partnership.getStatus().name(),
-                properties.activationBaseUrl() + "/" + encodedToken, expiresAt);
+        return new PartnerCenterResponses.Approved(partnershipId.toString(), partnership.getStatus().name(), expiresAt);
     }
 
     @Transactional

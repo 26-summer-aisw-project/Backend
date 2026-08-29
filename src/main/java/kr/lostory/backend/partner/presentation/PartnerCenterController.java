@@ -34,7 +34,7 @@ public class PartnerCenterController {
 
     @PostMapping("/api/v1/admin/partner-centers/{partnershipId}:approve")
     @SecurityRequirement(name = "bearerAuth")
-    @Operation(summary = "파트너 센터 승인", description = "ADMIN이 파트너십을 승인하고 24시간 유효 일회성 활성화 링크를 발급합니다.")
+    @Operation(summary = "파트너 센터 승인", description = "ADMIN이 파트너십을 승인하고 외부 운영 절차용 암호화 활성화 전달 자료를 생성합니다.")
     public PartnerCenterResponses.Approved approve(
             @AuthenticationPrincipal Jwt jwt,
             @PathVariable Long partnershipId) {
