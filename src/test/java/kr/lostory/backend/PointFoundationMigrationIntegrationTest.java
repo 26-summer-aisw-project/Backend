@@ -377,7 +377,7 @@ class PointFoundationMigrationIntegrationTest {
 		// Given
 		migrateToV26();
 		migrateLatest();
-		writeMigration(migrationDirectory, "V34__test_failure.sql", """
+		writeMigration(migrationDirectory, "V35__test_failure.sql", """
 			CREATE TABLE migration_failure_probe (id BIGINT PRIMARY KEY);
 			INSERT INTO migration_failure_probe (id) VALUES (1);
 			INSERT INTO vision_daily_admissions (admission_date, reserved_count) VALUES (DATE '2099-01-01', 1);
@@ -393,11 +393,11 @@ class PointFoundationMigrationIntegrationTest {
 			Integer.class
 		)).isZero();
 		assertThat(jdbc.queryForObject(
-			"SELECT count(*) FROM flyway_schema_history WHERE version = '34'",
+			"SELECT count(*) FROM flyway_schema_history WHERE version = '35'",
 			Integer.class
 		)).isZero();
 
-		writeMigration(migrationDirectory, "V34__test_failure.sql", """
+		writeMigration(migrationDirectory, "V35__test_failure.sql", """
 			CREATE TABLE migration_recovery_probe (id BIGINT PRIMARY KEY);
 			INSERT INTO migration_recovery_probe (id) VALUES (1);
 			""");
@@ -406,10 +406,10 @@ class PointFoundationMigrationIntegrationTest {
 
 		assertThat(jdbc.queryForObject("SELECT count(*) FROM migration_recovery_probe", Integer.class)).isOne();
 		assertThat(jdbc.queryForObject(
-			"SELECT count(*) FROM flyway_schema_history WHERE version = '34' AND success",
+			"SELECT count(*) FROM flyway_schema_history WHERE version = '35' AND success",
 			Integer.class
 		)).isOne();
-		System.out.println("POINT_FAILURE_RECOVERY_OBSERVABLE residue=0 recovered-version=34 applied=1 rerun=no-op");
+		System.out.println("POINT_FAILURE_RECOVERY_OBSERVABLE residue=0 recovered-version=35 applied=1 rerun=no-op");
 	}
 
 	private static void migrateToV27() {
