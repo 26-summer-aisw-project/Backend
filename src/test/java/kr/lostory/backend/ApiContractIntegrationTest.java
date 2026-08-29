@@ -1,9 +1,12 @@
 package kr.lostory.backend;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
 
 import kr.lostory.backend.auth.JwtTokenService;
 import kr.lostory.backend.common.exception.ErrorCode;
+import kr.lostory.backend.common.exception.GlobalExceptionHandler;
 import kr.lostory.backend.partner.application.PartnerActivationDeliveryCipher;
 import kr.lostory.backend.partner.domain.PartnerActivationDeliveryRepository;
 import kr.lostory.backend.user.domain.User;
@@ -17,13 +20,17 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.dao.DataAccessException;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.bean.override.mockito.MockReset;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import tools.jackson.core.JsonParser;
 import tools.jackson.core.StreamReadFeature;
 import tools.jackson.databind.JsonNode;
@@ -36,6 +43,10 @@ import tools.jackson.core.json.JsonFactory;
 class ApiContractIntegrationTest {
 
 	private static final String NO_MATRIX_ERROR_CODE = "NONE";
+	private static final String HANDLER_DIAGNOSTIC_ROW =
+		"POST /api/v1/found-items/{id}:confirm-handover";
+	private static final Set<String> MATRIX_HANDLER_CATEGORIES = Set.of(
+		"DATA_ACCESS", "INVALID_ARGUMENT", "INVALID_STATE", "NOT_OBSERVED", "OTHER");
 	private static final Set<String> MATRIX_ERROR_CODES = Arrays.stream(ErrorCode.values())
 		.map(ErrorCode::getCode)
 		.collect(java.util.stream.Collectors.toUnmodifiableSet());
@@ -46,6 +57,7 @@ class ApiContractIntegrationTest {
 	@Autowired JdbcTemplate jdbc;
 	@Autowired PartnerActivationDeliveryRepository activationDeliveries;
 	@Autowired PartnerActivationDeliveryCipher deliveryCipher;
+	@MockitoSpyBean(reset = MockReset.AFTER) GlobalExceptionHandler globalExceptionHandler;
 	private final ObjectMapper json = new ObjectMapper();
 	private final ObjectMapper matrixDiagnosticJson = new ObjectMapper(JsonFactory.builder()
 		.enable(StreamReadFeature.STRICT_DUPLICATE_DETECTION).build());
@@ -53,17 +65,29 @@ class ApiContractIntegrationTest {
 
 	@Test
 	void everyMatrixRowHasAValidRoleAwareRealHttpSuccessFixture() throws Exception {
+		AtomicReference<String> genericHandlerCategory = new AtomicReference<>("NOT_OBSERVED");
+		doAnswer(invocation -> {
+			Exception exception = invocation.getArgument(0, Exception.class);
+			genericHandlerCategory.set(matrixUnexpectedHandlerCategory(exception));
+			return invocation.callRealMethod();
+		}).when(globalExceptionHandler).handleUnexpectedException(any(Exception.class));
 		assertThat(ApiContractMatrix.OPERATIONS).hasSize(32);
 		ApiContractSuccessFixture fixtures = new ApiContractSuccessFixture(
 			port, tokens, users, jdbc, json, activationDeliveries, deliveryCipher);
 		ApiContractSuccessFixture.Context context = fixtures.seed();
 		for (ApiContractMatrix.Operation row : ApiContractMatrix.OPERATIONS) {
 			HttpRequest request = fixtures.request(row, context);
+			genericHandlerCategory.set("NOT_OBSERVED");
 			HttpResponse<String> response = httpClient.send(request,
 				HttpResponse.BodyHandlers.ofString());
+			String errorCode = matrixErrorCode(response.body());
+			String handlerDiagnostic = row.key().equals(HANDLER_DIAGNOSTIC_ROW)
+					&& row.successStatus() == 200 && response.statusCode() == 500
+					&& errorCode.equals("COMMON-005")
+				? " handler=" + genericHandlerCategory.get() : "";
 			assertThat(response.statusCode())
-				.withFailMessage("matrix row %s expected HTTP %d actual HTTP %d code %s",
-					row.key(), row.successStatus(), response.statusCode(), matrixErrorCode(response.body()))
+				.withFailMessage("matrix row %s expected HTTP %d actual HTTP %d code %s%s",
+					row.key(), row.successStatus(), response.statusCode(), errorCode, handlerDiagnostic)
 				.isEqualTo(row.successStatus());
 			JsonNode body = json.readTree(response.body());
 			assertThat(body.propertyNames()).as(row.key() + " success fields")
@@ -167,6 +191,23 @@ class ApiContractIntegrationTest {
 		}
 	}
 
+	@Test
+	void matrixUnexpectedHandlerDiagnosticUsesOnlyFiniteCategories() {
+		assertThat(matrixUnexpectedHandlerCategory(new DataAccessException("") {}))
+			.isEqualTo("DATA_ACCESS");
+		assertThat(matrixUnexpectedHandlerCategory(new IllegalStateException()))
+			.isEqualTo("INVALID_STATE");
+		assertThat(matrixUnexpectedHandlerCategory(new IllegalArgumentException()))
+			.isEqualTo("INVALID_ARGUMENT");
+		assertThat(matrixUnexpectedHandlerCategory(new Exception())).isEqualTo("OTHER");
+		assertThat(Set.of(
+			matrixUnexpectedHandlerCategory(new DataAccessException("") {}),
+			matrixUnexpectedHandlerCategory(new IllegalStateException()),
+			matrixUnexpectedHandlerCategory(new IllegalArgumentException()),
+			matrixUnexpectedHandlerCategory(new Exception()),
+			"NOT_OBSERVED")).isEqualTo(MATRIX_HANDLER_CATEGORIES);
+	}
+
 	private HttpResponse<String> get(long reportId, String token) throws Exception {
 		return HttpClient.newHttpClient().send(HttpRequest.newBuilder(URI.create(
 				"http://localhost:" + port + "/api/v1/lost-reports/" + reportId + "/candidates"))
@@ -225,5 +266,18 @@ class ApiContractIntegrationTest {
 		} catch (Exception ignored) {
 			return NO_MATRIX_ERROR_CODE;
 		}
+	}
+
+	private String matrixUnexpectedHandlerCategory(Exception exception) {
+		if (exception instanceof DataAccessException) {
+			return "DATA_ACCESS";
+		}
+		if (exception instanceof IllegalStateException) {
+			return "INVALID_STATE";
+		}
+		if (exception instanceof IllegalArgumentException) {
+			return "INVALID_ARGUMENT";
+		}
+		return "OTHER";
 	}
 }

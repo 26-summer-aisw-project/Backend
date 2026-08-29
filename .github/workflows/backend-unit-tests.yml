@@ -97,11 +97,29 @@ jobs:
               r"expected HTTP (?P<expected>[0-9]{3}) actual HTTP (?P<actual>[0-9]{3}) "
               rf"code (?P<code>{code_pattern})"
           )
+          handler_row = "POST /api/v1/found-items/{id}:confirm-handover"
+          allowed_handler_categories = frozenset({
+              "DATA_ACCESS", "INVALID_ARGUMENT", "INVALID_STATE", "NOT_OBSERVED", "OTHER",
+          })
+          handler_pattern = "|".join(
+              re.escape(category) for category in sorted(allowed_handler_categories)
+          )
+          handler_failure_pattern = re.compile(
+              rf"java\.lang\.AssertionError: matrix row {re.escape(handler_row)} "
+              r"expected HTTP 200 actual HTTP 500 code COMMON\-005 "
+              rf"handler=(?P<handler>{handler_pattern})"
+          )
 
           try:
               failures = ET.parse(report).getroot().iter("failure")
               for failure in failures:
-                  match = pattern.fullmatch(failure.attrib.get("message", ""))
+                  message = failure.attrib.get("message", "")
+                  handler_match = handler_failure_pattern.fullmatch(message)
+                  if handler_match:
+                      print(f"matrix row {handler_row} expected HTTP 200 actual HTTP 500 "
+                            f"code COMMON-005 handler={handler_match.group('handler')}")
+                      break
+                  match = pattern.fullmatch(message)
                   if match:
                       print(f"matrix row {match.group('row')} expected HTTP "
                             f"{match.group('expected')} actual HTTP {match.group('actual')} "
