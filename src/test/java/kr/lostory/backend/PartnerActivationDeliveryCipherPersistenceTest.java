@@ -51,10 +51,10 @@ class PartnerActivationDeliveryCipherPersistenceTest {
         assertThat(reloaded.getActivationTokenId()).isEqualTo(tokenId);
         assertThat(reloaded.getKeyVersion()).isEqualTo(encrypted.getKeyVersion());
         assertThat(reloaded.getExpiresAt().getEpochSecond()).isEqualTo(expiresAt.getEpochSecond());
-        System.out.printf("D7_AEAD_PERSISTENCE input_epoch=%d input_nanos=%d reloaded_epoch=%d "
-                        + "reloaded_nanos=%d key_version=%s row_id=%d token_id=%d%n",
+        System.out.printf("D8_AEAD_PERSISTENCE input_epoch=%d input_nanos=%d reloaded_epoch=%d "
+                        + "reloaded_nanos=%d%n",
                 expiresAt.getEpochSecond(), expiresAt.getNano(), reloaded.getExpiresAt().getEpochSecond(),
-                reloaded.getExpiresAt().getNano(), reloaded.getKeyVersion(), rowId, tokenId);
+                reloaded.getExpiresAt().getNano());
         assertThat(cipher.decrypt(reloaded)).isEqualTo("https://example.test/activate");
     }
 
