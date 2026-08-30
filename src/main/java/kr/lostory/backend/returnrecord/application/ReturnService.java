@@ -80,14 +80,14 @@ public class ReturnService {
         CenterPartnership partnership = partnerships
                 .findByManagerUserIdAndStatus(managerId, PartnershipStatus.ACTIVE)
                 .orElseThrow(() -> new LostoryException(ErrorCode.FORBIDDEN));
-        if (!candidates.existsByReportIdAndItemId(reportId, itemId)
-                && !returns.existsByFoundItemIdAndLostReportId(itemId, reportId)) {
-            throw new LostoryException(ErrorCode.INVALID_STATE);
-        }
         CenterHandover requested = handovers.findByFoundItemIdAndSupersededAtIsNull(itemId)
                 .orElseThrow(() -> new LostoryException(ErrorCode.INVALID_STATE));
         if (!requested.getCenterId().equals(partnership.getCenterId())) {
             throw new LostoryException(ErrorCode.FORBIDDEN);
+        }
+        if (!candidates.existsByReportIdAndItemId(reportId, itemId)
+                && !returns.existsByFoundItemIdAndLostReportId(itemId, reportId)) {
+            throw new LostoryException(ErrorCode.INVALID_STATE);
         }
 
         FoundItem item = items.findByIdForUpdate(itemId)

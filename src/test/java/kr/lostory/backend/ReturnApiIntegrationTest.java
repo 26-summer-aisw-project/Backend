@@ -217,6 +217,41 @@ class ReturnApiIntegrationTest {
     }
 
     @Test
+    void foreignManagerCannotOracleExistingReportLinkage() throws Exception {
+        // Given
+        User manager = user(UserRole.CENTER_MANAGER);
+        User foreign = user(UserRole.CENTER_MANAGER);
+        Fixture fixture = fixture(manager);
+        activate(foreign, center());
+        Long unlinkedReportId = report(user(UserRole.USER).getId());
+
+        HttpResponse<String> owner = post(manager, fixture.itemId(), fixture.reportId());
+        assertThat(owner.statusCode()).isEqualTo(201);
+        int returnsBefore = count("return_records");
+        int candidatesBefore = count("match_candidates");
+        int rewardsBefore = rewardCount();
+        int auditsBefore = auditCount();
+
+        // When
+        HttpResponse<String> linked = post(foreign, fixture.itemId(), fixture.reportId());
+        HttpResponse<String> unlinked = post(foreign, fixture.itemId(), unlinkedReportId);
+
+        // Then
+        System.out.printf("F2C_HTTP_QA owner=%d foreign-linked=%d %s foreign-unlinked=%d %s "
+                        + "return_delta=%d candidate_delta=%d reward_delta=%d audit_delta=%d%n",
+                owner.statusCode(), linked.statusCode(), json.readTree(linked.body()).get("code").asString(),
+                unlinked.statusCode(), json.readTree(unlinked.body()).get("code").asString(),
+                count("return_records") - returnsBefore, count("match_candidates") - candidatesBefore,
+                rewardCount() - rewardsBefore, auditCount() - auditsBefore);
+        assertError(linked, 403, "COMMON-003");
+        assertError(unlinked, 403, "COMMON-003");
+        assertThat(count("return_records") - returnsBefore).isZero();
+        assertThat(count("match_candidates") - candidatesBefore).isZero();
+        assertThat(rewardCount() - rewardsBefore).isZero();
+        assertThat(auditCount() - auditsBefore).isZero();
+    }
+
+    @Test
     void blockedAndDeletedFindersReceiveRewardWithoutAuthenticationRestoration() throws Exception {
         // Given
         User manager = user(UserRole.CENTER_MANAGER);
