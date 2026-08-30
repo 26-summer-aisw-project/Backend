@@ -22,6 +22,8 @@ public interface LostReportRepository extends JpaRepository<LostReport, Long> {
             + "and report.candidatesStale = false")
     int markOpenCandidatesStale();
 
+    boolean existsByIdAndReporterId(Long id, Long reporterId);
+
     Page<LostReport> findByReporterId(Long reporterId, Pageable pageable);
 
     Page<LostReport> findByReporterIdAndStatus(Long reporterId, LostReportStatus status, Pageable pageable);

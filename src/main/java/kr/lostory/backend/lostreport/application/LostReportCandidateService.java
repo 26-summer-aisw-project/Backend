@@ -35,14 +35,15 @@ public class LostReportCandidateService {
 
 	@Transactional
 	public LostReportCandidateResponse candidates(Long reportId, Long requesterId) {
+		if (!reportRepository.existsByIdAndReporterId(reportId, requesterId)) {
+			throw new LostoryException(ErrorCode.RESOURCE_NOT_FOUND);
+		}
+		Instant databaseNow = lifecycle.databaseNow();
+		lifecycle.expireCandidateItems(reportId, databaseNow);
 		LostReport report = reportRepository.findByIdForUpdate(reportId)
 				.orElseThrow(() -> new LostoryException(ErrorCode.RESOURCE_NOT_FOUND));
 		if (!report.getReporterId().equals(requesterId)) {
 			throw new LostoryException(ErrorCode.RESOURCE_NOT_FOUND);
-		}
-		Instant databaseNow = lifecycle.databaseNow();
-		if (lifecycle.expireCandidateItems(reportId, databaseNow) > 0) {
-			report.markCandidatesStale(databaseNow);
 		}
 		if (report.getStatus() != LostReportStatus.OPEN || !report.getExpiredAt().isAfter(databaseNow)) {
 			lifecycle.expireLockedReport(reportId, databaseNow);

@@ -47,6 +47,8 @@ class ReturnApiIntegrationTest {
     private static final AtomicReference<ContentionGate> ACTIVE_ITEM_LOCK_GATE = new AtomicReference<>();
     private static final AtomicReference<ContentionGate> ACTIVE_STALE_GATE = new AtomicReference<>();
     private static final AtomicReference<ContentionGate> ACTIVE_ACCOUNT_ABSENCE_GATE = new AtomicReference<>();
+    private static final AtomicReference<ContentionGate> ACTIVE_RETURN_ITEM_HELD_GATE = new AtomicReference<>();
+    private static final AtomicReference<ContentionGate> ACTIVE_CANDIDATE_EXPIRY_GATE = new AtomicReference<>();
 
     @LocalServerPort int port;
     @Autowired JwtTokenService tokens;
@@ -62,6 +64,8 @@ class ReturnApiIntegrationTest {
         ACTIVE_ITEM_LOCK_GATE.set(null);
         ACTIVE_STALE_GATE.set(null);
         ACTIVE_ACCOUNT_ABSENCE_GATE.set(null);
+        ACTIVE_RETURN_ITEM_HELD_GATE.set(null);
+        ACTIVE_CANDIDATE_EXPIRY_GATE.set(null);
         jdbc.update("DELETE FROM audit_logs WHERE target_type = 'RETURN_RECORD'");
         jdbc.update("DELETE FROM point_ledger WHERE entry_type = 'CENTER_RETURN_REWARD'");
         jdbc.update("DELETE FROM return_records");
@@ -294,6 +298,59 @@ class ReturnApiIntegrationTest {
                 Integer.class)).isZero();
         assertDurableReturn(manager, firstFixture);
         assertDurableReturn(manager, secondFixture);
+    }
+
+    @Test
+    void controlledCandidateExpiryVersusReturnHasNoDeadlock() throws Exception {
+        // Given
+        User manager = user(UserRole.CENTER_MANAGER);
+        Fixture fixture = fixture(manager);
+        jdbc.update("UPDATE found_items SET expired_at=clock_timestamp() WHERE id=?", fixture.itemId());
+        ContentionGate returnItemHeld = new ContentionGate(1);
+        ContentionGate candidateExpiry = new ContentionGate(1);
+        ACTIVE_RETURN_ITEM_HELD_GATE.set(returnItemHeld);
+        ACTIVE_CANDIDATE_EXPIRY_GATE.set(candidateExpiry);
+
+        // When
+        HttpResponse<String> returned;
+        HttpResponse<String> candidates;
+        try (ExecutorService executor = Executors.newFixedThreadPool(2)) {
+            Future<HttpResponse<String>> returnFuture = executor.submit(
+                    () -> post(manager, fixture.itemId(), fixture.reportId()));
+            returnItemHeld.assertReached();
+            Future<HttpResponse<String>> candidateFuture = executor.submit(
+                    () -> request("GET", "/api/v1/lost-reports/" + fixture.reportId() + "/candidates",
+                            fixture.owner(), null));
+            candidateExpiry.assertReached();
+            candidateExpiry.release();
+            returnItemHeld.release();
+            returned = returnFuture.get(15, TimeUnit.SECONDS);
+            candidates = candidateFuture.get(15, TimeUnit.SECONDS);
+        } finally {
+            ACTIVE_RETURN_ITEM_HELD_GATE.compareAndSet(returnItemHeld, null);
+            ACTIVE_CANDIDATE_EXPIRY_GATE.compareAndSet(candidateExpiry, null);
+        }
+
+        // Then
+        assertThat(returned.statusCode()).isEqualTo(201);
+        assertThat(candidates.statusCode()).isEqualTo(200);
+        assertThat(json.readTree(candidates.body()).get("data")).isEmpty();
+        assertThat(candidates.body()).doesNotContain(
+                "finder", "email", "location", "private", "token", "metadata");
+        assertThat(count("return_records")).isOne();
+        assertThat(rewardCount()).isOne();
+        assertThat(auditCount()).isOne();
+        assertThat(jdbc.queryForObject("SELECT balance FROM point_accounts WHERE user_id=?", Integer.class,
+                fixture.finder().getId())).isEqualTo(5);
+        assertThat(jdbc.queryForObject("SELECT status FROM found_items WHERE id=?", String.class,
+                fixture.itemId())).isEqualTo("RETURNED");
+        assertThat(jdbc.queryForObject("SELECT status FROM lost_reports WHERE id=?", String.class,
+                fixture.reportId())).isEqualTo("OPEN");
+        assertThat(jdbc.queryForObject("SELECT candidates_stale FROM lost_reports WHERE id=?", Boolean.class,
+                fixture.reportId())).isFalse();
+        System.out.printf("F2A_HTTP_QA return_status=%d candidate_status=%d returns=1 rewards=1 audits=1 "
+                        + "item=RETURNED report=OPEN stale=false%n",
+                returned.statusCode(), candidates.statusCode());
     }
 
     @Test
@@ -870,6 +927,15 @@ class ReturnApiIntegrationTest {
                 release.countDown();
             }
         }
+
+        private void assertReached() throws InterruptedException {
+            assertThat(reached.await(10, TimeUnit.SECONDS)).isTrue();
+            assertThat(observed.get()).isOne();
+        }
+
+        private void release() {
+            release.countDown();
+        }
     }
 
     @TestConfiguration
@@ -882,10 +948,14 @@ class ReturnApiIntegrationTest {
                 public Object postProcessAfterInitialization(Object bean, String beanName) {
                     if (!beanName.equals("foundItemRepository")
                             && !beanName.equals("lostReportRepository")
-                            && !beanName.equals("pointAccountRepository")) {
+                            && !beanName.equals("pointAccountRepository")
+                            && !beanName.equals("lostReportLifecycleCleanupService")) {
                         return bean;
                     }
                     ProxyFactory proxy = new ProxyFactory(bean);
+                    if (beanName.equals("lostReportLifecycleCleanupService")) {
+                        proxy.setProxyTargetClass(true);
+                    }
                     proxy.addAdvice((org.aopalliance.intercept.MethodInterceptor) invocation -> {
                         String method = invocation.getMethod().getName();
                         ContentionGate gate = beanName.equals("foundItemRepository")
@@ -898,7 +968,21 @@ class ReturnApiIntegrationTest {
                         if (gate != null) {
                             gate.reachAndAwaitRelease();
                         }
+                        ContentionGate expiryGate = beanName.equals("lostReportLifecycleCleanupService")
+                                && method.equals("expireCandidateItems")
+                                ? ACTIVE_CANDIDATE_EXPIRY_GATE.get()
+                                : null;
+                        if (expiryGate != null) {
+                            expiryGate.reachAndAwaitRelease();
+                        }
                         Object result = invocation.proceed();
+                        ContentionGate itemHeldGate = beanName.equals("foundItemRepository")
+                                && method.equals("findByIdForUpdate")
+                                ? ACTIVE_RETURN_ITEM_HELD_GATE.get()
+                                : null;
+                        if (itemHeldGate != null) {
+                            itemHeldGate.reachAndAwaitRelease();
+                        }
                         ContentionGate accountGate = beanName.equals("pointAccountRepository")
                                 && method.equals("findByUserIdForUpdate")
                                 && result instanceof java.util.Optional<?> optional
