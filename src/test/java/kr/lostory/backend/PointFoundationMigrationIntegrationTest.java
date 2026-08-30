@@ -70,6 +70,39 @@ class PointFoundationMigrationIntegrationTest {
 	}
 
 	@Test
+	void v26VariableDebitMigratesDirectlyToLatestWithoutChangingBalance() {
+		// Given
+		migrateToV26();
+		insertV26LegacyFixture();
+		jdbc.update("UPDATE point_ledger SET amount = -2 WHERE id = 203");
+		jdbc.update("UPDATE users SET status = 'BLOCKED' WHERE id = 101");
+		int balanceBefore = jdbc.queryForObject(
+			"SELECT balance FROM point_accounts WHERE user_id = 101", Integer.class);
+
+		// When
+		migrateLatest();
+
+		// Then
+		assertThat(jdbc.queryForList(
+			"SELECT version FROM flyway_schema_history "
+				+ "WHERE version IN ('27', '28', '29', '30', '31', '32', '33', '34') ORDER BY installed_rank",
+			String.class
+		)).containsExactly("27", "28", "29", "30", "31", "32", "33", "34");
+		assertThat(jdbc.queryForObject("SELECT amount FROM point_ledger WHERE id = 203", Integer.class))
+			.isEqualTo(-2);
+		assertThat(jdbc.queryForObject(
+			"SELECT balance FROM point_accounts WHERE user_id = 101", Integer.class)).isEqualTo(balanceBefore);
+		assertThat(jdbc.queryForObject(
+			"SELECT to_regclass('public.point_ledger_v28_debit_compatibility')", String.class)).isNull();
+		insertReport(1001, 101);
+		insertCandidateAccess(1001, 101, 204, "00000000-0000-0000-0000-000000000024");
+		assertThat(jdbc.queryForObject("SELECT amount FROM point_ledger WHERE id = 204", Integer.class))
+			.isEqualTo(-1);
+		System.out.println("POINT_V26_DIRECT_COMPATIBILITY_OBSERVABLE versions=27-34 legacy=-2 current=-1 "
+			+ "balance=3 staging=absent");
+	}
+
+	@Test
 	void pendingV28InterruptionResumesWithoutRestagingOrBalanceMutation() {
 		// Given
 		migrateToV27();

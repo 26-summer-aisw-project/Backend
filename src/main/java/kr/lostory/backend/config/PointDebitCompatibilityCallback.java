@@ -23,7 +23,7 @@ public class PointDebitCompatibilityCallback extends BaseCallback {
 	public void handle(Event event, Context context) {
 		Connection connection = context.getConnection();
 		try {
-			if (!v28IsPendingAfterV27(connection)) {
+			if (!v28IsPending(connection)) {
 				return;
 			}
 			try (Statement statement = connection.createStatement()) {
@@ -54,13 +54,10 @@ public class PointDebitCompatibilityCallback extends BaseCallback {
 		}
 	}
 
-	private boolean v28IsPendingAfterV27(Connection connection) throws SQLException {
+	private boolean v28IsPending(Connection connection) throws SQLException {
 		try (Statement statement = connection.createStatement();
 				ResultSet result = statement.executeQuery("""
 					SELECT to_regclass('public.point_ledger') IS NOT NULL
-						AND EXISTS (
-							SELECT 1 FROM flyway_schema_history WHERE version = '27' AND success
-						)
 						AND NOT EXISTS (
 							SELECT 1 FROM flyway_schema_history WHERE version = '28' AND success
 						)
