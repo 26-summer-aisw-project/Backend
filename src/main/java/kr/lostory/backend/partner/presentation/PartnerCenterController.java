@@ -4,6 +4,8 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import kr.lostory.backend.common.exception.ErrorCode;
+import kr.lostory.backend.common.exception.LostoryException;
 import kr.lostory.backend.partner.application.PartnerCenterService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -29,7 +31,11 @@ public class PartnerCenterController {
     public PartnerCenterResponses.Created create(
             @AuthenticationPrincipal Jwt jwt,
             @Valid @RequestBody CreatePartnerCenterRequest request) {
-        return service.create(Long.valueOf(jwt.getSubject()), request);
+        try {
+            return service.create(Long.valueOf(jwt.getSubject()), request);
+        } catch (NumberFormatException exception) {
+            throw new LostoryException(ErrorCode.INVALID_REQUEST);
+        }
     }
 
     @PostMapping("/api/v1/admin/partner-centers/{partnershipId}:approve")

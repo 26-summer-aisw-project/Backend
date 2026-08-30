@@ -1,6 +1,9 @@
 package kr.lostory.backend;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 
 import jakarta.validation.Validator;
 import java.net.URI;
@@ -23,6 +26,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import kr.lostory.backend.auth.JwtTokenService;
 import kr.lostory.backend.config.PartnerProperties;
+import kr.lostory.backend.lostcenter.domain.LostCenterRepository;
 import kr.lostory.backend.partner.application.PartnerActivationDeliveryCipher;
 import kr.lostory.backend.partner.domain.PartnerActivationDelivery;
 import kr.lostory.backend.partner.domain.PartnerActivationDeliveryRepository;
@@ -39,6 +43,8 @@ import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.bean.override.mockito.MockReset;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
 import tools.jackson.databind.JsonNode;
@@ -60,6 +66,7 @@ class PartnerCenterApiIntegrationTest {
     @Autowired Validator validator;
     @Autowired PartnerActivationDeliveryRepository activationDeliveries;
     @Autowired PartnerActivationDeliveryCipher deliveryCipher;
+    @MockitoSpyBean(reset = MockReset.AFTER) LostCenterRepository centers;
     private final HttpClient http = HttpClient.newHttpClient();
     private final ObjectMapper json = new ObjectMapper();
     private final List<ExecutorService> executors = new ArrayList<>();
@@ -101,6 +108,18 @@ class PartnerCenterApiIntegrationTest {
         error(create(admin, center(), existing.getEmail().toUpperCase(), "Duplicate"), 409, "AUTH-001");
         error(create(admin, Long.MAX_VALUE, "new@example.test", "Missing"), 404, "COMMON-004");
         assertThat(jdbc.queryForObject("SELECT count(*) FROM center_partnerships", Integer.class)).isZero();
+    }
+
+    @Test
+    void rejectsOverflowCenterIdAsInvalidRequest() throws Exception {
+        User admin = user(UserRole.ADMIN);
+        HttpResponse<String> response = post("/api/v1/admin/partner-centers", tokens.issue(admin).value(),
+                "{\"centerId\":\"9223372036854775808\",\"manager\":{\"email\":\"task5-overflow@example.test\",\"displayName\":\"Overflow\"}}");
+
+        verify(centers, never()).existsById(anyLong());
+        assertThat(response.statusCode() + " " + json.readTree(response.body()).get("code").asString())
+                .as("real HTTP status/error")
+                .isEqualTo("400 COMMON-001");
     }
 
     @Test
