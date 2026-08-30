@@ -276,6 +276,46 @@ class JwtSecurityIntegrationTest {
 	}
 
 	@Test
+	void retiredNearbyRouteIsRoleInvariant() throws Exception {
+		// Given
+		User user = userRepository.saveAndFlush(
+			new User(uniqueEmail("retired-user"), "test-password-hash", "Retired User"));
+		User admin = userRepository.saveAndFlush(
+			new User(uniqueEmail("retired-admin"), "test-password-hash", "Retired Admin", UserRole.ADMIN));
+		User manager = userRepository.saveAndFlush(new User(
+			uniqueEmail("retired-manager"), "test-password-hash", "Retired Manager", UserRole.CENTER_MANAGER));
+		User staleManager = userRepository.saveAndFlush(new User(
+			uniqueEmail("stale-manager"), "test-password-hash", "Stale Manager", UserRole.CENTER_MANAGER));
+		String userToken = tokenService.issue(user).value();
+		String adminToken = tokenService.issue(admin).value();
+		String managerToken = tokenService.issue(manager).value();
+		String staleManagerToken = tokenService.issue(staleManager).value();
+		jdbcTemplate.update("UPDATE users SET status = 'BLOCKED' WHERE id = ?", staleManager.getId());
+
+		// When
+		HttpResponse<String> anonymous = get("/api/v1/nearby-lost-centers", null);
+		HttpResponse<String> activeUser = get("/api/v1/nearby-lost-centers", userToken);
+		HttpResponse<String> activeAdmin = get("/api/v1/nearby-lost-centers", adminToken);
+		HttpResponse<String> activeManager = get("/api/v1/nearby-lost-centers", managerToken);
+		HttpResponse<String> staleManagerResponse = get("/api/v1/nearby-lost-centers", staleManagerToken);
+		System.out.printf("RETIRED_NEARBY_MATRIX anonymous=%d/%s user=%d/%s admin=%d/%s "
+			+ "manager=%d/%s stale-manager=%d/%s fields=[code,message]%n",
+			anonymous.statusCode(), errorCode(anonymous), activeUser.statusCode(), errorCode(activeUser),
+			activeAdmin.statusCode(), errorCode(activeAdmin), activeManager.statusCode(), errorCode(activeManager),
+			staleManagerResponse.statusCode(), errorCode(staleManagerResponse));
+
+		// Then
+		assertThat(anonymous.statusCode()).isEqualTo(401);
+		assertJsonError(anonymous.body(), "COMMON-002", "Authentication is required.");
+		for (HttpResponse<String> response : List.of(activeUser, activeAdmin, activeManager)) {
+			assertThat(response.statusCode()).isEqualTo(404);
+			assertJsonError(response.body(), "COMMON-004", "The requested resource could not be found.");
+		}
+		assertThat(staleManagerResponse.statusCode()).isEqualTo(401);
+		assertJsonError(staleManagerResponse.body(), "AUTH-003", "The access token is invalid.");
+	}
+
+	@Test
 	void accessDeniedHandlerWritesCommon003Json() throws Exception {
 		// Given
 		MockHttpServletRequest request = new MockHttpServletRequest();
@@ -384,6 +424,15 @@ class JwtSecurityIntegrationTest {
 		var json = objectMapper.readTree(body);
 		assertThat(json.propertyNames()).containsExactlyInAnyOrder("code", "message");
 		assertThat(json.get("code").asString()).isEqualTo(code);
+	}
+
+	private void assertJsonError(String body, String code, String message) throws Exception {
+		assertJsonError(body, code);
+		assertThat(objectMapper.readTree(body).get("message").asString()).isEqualTo(message);
+	}
+
+	private String errorCode(HttpResponse<String> response) throws Exception {
+		return objectMapper.readTree(response.body()).get("code").asString();
 	}
 
 	private void assertNoSession(HttpResponse<?> response) {

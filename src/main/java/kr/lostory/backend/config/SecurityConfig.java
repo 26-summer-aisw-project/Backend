@@ -179,7 +179,9 @@ public class SecurityConfig {
 		String path = request.getRequestURI();
 		return method.equals("POST") && path.equals("/api/v1/found-items")
 			|| (method.equals("GET") || method.equals("POST"))
-				&& path.matches("/api/v1/found-items/[0-9]+/images");
+				&& path.matches("/api/v1/found-items/[0-9]+/images")
+			|| method.equals("GET") && path.equals("/api/v1/nearby-lost-centers")
+				&& request.getUserPrincipal() != null;
 	}
 
 	private static void writeError(HttpServletResponse response, ObjectMapper objectMapper, ErrorCode errorCode)
