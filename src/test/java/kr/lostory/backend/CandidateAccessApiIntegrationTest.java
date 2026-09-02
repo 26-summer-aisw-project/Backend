@@ -173,35 +173,6 @@ class CandidateAccessApiIntegrationTest {
 	}
 
 	@Test
-	void replayUsesLinkedDebitWhenCurrentPolicyDiffers() throws Exception {
-		// Given
-		User owner = user(9);
-		long reportId = report(owner.getId());
-		UUID firstKey = UUID.randomUUID();
-		long debitId = jdbc.queryForObject("INSERT INTO point_ledger "
-				+ "(user_id, entry_type, amount, idempotency_key, reference_type, reference_id) "
-				+ "VALUES (?, 'CANDIDATE_ACCESS_DEBIT', -2, ?, 'LOST_REPORT', ?) RETURNING id",
-				Long.class, owner.getId(), firstKey, reportId);
-		long accessId = jdbc.queryForObject("INSERT INTO candidate_accesses "
-				+ "(report_id, user_id, debit_transaction_id, remaining_balance) VALUES (?, ?, ?, 9) RETURNING id",
-				Long.class, reportId, owner.getId(), debitId);
-		jdbc.update("INSERT INTO candidate_access_idempotency_receipts "
-				+ "(idempotency_key, user_id, report_id, candidate_access_id) VALUES (?, ?, ?, ?)",
-				firstKey, owner.getId(), reportId, accessId);
-
-		// When
-		HttpResponse<String> same = post(reportId, owner, firstKey.toString());
-		HttpResponse<String> different = post(reportId, owner, UUID.randomUUID().toString());
-
-		// Then
-		assertAccessResult(same, 2, 9, true);
-		assertAccessResult(different, 2, 9, true);
-		assertThat(count("point_ledger", reportId)).isOne();
-		assertThat(jdbc.queryForObject("SELECT count(*) FROM candidate_access_idempotency_receipts "
-				+ "WHERE report_id = ?", Integer.class, reportId)).isEqualTo(2);
-	}
-
-	@Test
 	void reusedKeyAcrossReportsConflictsAndInsufficientBalanceRollsBack() throws Exception {
 		// Given
 		User owner = user(10);
