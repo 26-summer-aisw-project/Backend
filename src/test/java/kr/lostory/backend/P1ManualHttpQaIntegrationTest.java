@@ -137,7 +137,9 @@ class P1ManualHttpQaIntegrationTest {
 			"{\"email\":\"%s\",\"password\":\"safe-password-123\",\"displayName\":\"P1 Finder\"}"
 				.formatted(finderEmail)));
 		User finder = users.findByEmail(finderEmail).orElseThrow();
-		String finderToken = tokens.issue(finder).value();
+		Observed finderLogin = curl(new Request("finder-login", "POST", "/api/v1/auth/login", null, null,
+			"{\"email\":\"%s\",\"password\":\"safe-password-123\"}".formatted(finderEmail)));
+		String finderToken = body(finderLogin).path("accessToken").asString();
 		Long centerId = center();
 		Long itemId = item(finder.getId(), centerId);
 		Long handoverId = handover(itemId, centerId);
@@ -201,13 +203,19 @@ class P1ManualHttpQaIntegrationTest {
 			finderToken, null, null));
 		Observed ownerLedger = curl(new Request("owner-ledger", "GET", "/api/v1/points/ledger?page=1&pageSize=20",
 			ownerToken, null, null));
-		observed.addAll(List.of(finderSignup, finderBalanceBefore, created, approved, activated, activationReplay,
+		jdbc.update("UPDATE users SET status='BLOCKED' WHERE id=?", finder.getId());
+		Observed finderStaleTokenAfterBlock = curl(new Request("finder-stale-token-after-block", "GET",
+			"/api/v1/users/me", finderToken, null, null));
+		observed.addAll(List.of(finderSignup, finderLogin, finderBalanceBefore, created, approved, activated, activationReplay,
 			signedImage, handovers, accepted, missingKey, badKey, firstAccess, replayAccess, unlockedBefore,
 			returned, finderBalanceAfterReturn, returnReplay, finderBalanceAfterReplay, unlockedAfter,
-			ownerBalance, finderLedger, ownerLedger));
+			ownerBalance, finderLedger, ownerLedger, finderStaleTokenAfterBlock));
 
 		// Then
 		assertFields(finderSignup, 201, "id", "email", "displayName", "status", "roles");
+		assertFields(finderLogin, 200, "accessToken", "tokenType", "expiresAt", "user");
+		assertThat(body(finderLogin).path("accessToken").asString()).isNotBlank();
+		assertThat(body(finderLogin).path("user").path("status").asString()).isEqualTo("ACTIVE");
 		assertThat(body(finderBalanceBefore).path("balance").asInt()).isEqualTo(10);
 		assertFields(created, 201, "partnershipId", "centerId", "status", "managerEmail");
 		assertFields(approved, 200, "partnershipId", "status", "expiresAt");
@@ -240,6 +248,7 @@ class P1ManualHttpQaIntegrationTest {
 		assertThat(jdbc.queryForObject("SELECT count(*) FROM point_ledger WHERE user_id=? "
 			+ "AND entry_type='CENTER_RETURN_REWARD'", Integer.class, finder.getId())).isOne();
 		assertThat(ownerLedger.body()).contains("CANDIDATE_ACCESS_DEBIT");
+		assertError(finderStaleTokenAfterBlock, 401, "AUTH-003");
 
 		List<String> secrets = List.of(adminToken, finderToken, ownerToken, managerToken, activationUrl, capability,
 			idempotencyKey.toString(), managerEmail, admin.getEmail(), finder.getEmail(), owner.getEmail(),
@@ -254,6 +263,8 @@ class P1ManualHttpQaIntegrationTest {
 			.contains("curl -i --max-time 15", "STATUS 200", "STATUS 201", "STATUS 400", "STATUS 404",
 				"HEADER cache-control: no-store", "ERROR_CODE COMMON-001", "ERROR_CODE COMMON-004",
 				"REPLAYED false", "REPLAYED true", "DATA_COUNT", "META_TOTAL_ITEMS");
+		assertThat(transcript).contains("=== finder-login ===", "/api/v1/auth/login",
+			"=== finder-stale-token-after-block ===", "STATUS 401", "ERROR_CODE AUTH-003");
 	}
 
 	private Observed curl(Request request) throws Exception {
