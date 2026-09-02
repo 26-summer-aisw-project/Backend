@@ -264,7 +264,8 @@ class P1ManualHttpQaIntegrationTest {
 				"HEADER cache-control: no-store", "ERROR_CODE COMMON-001", "ERROR_CODE COMMON-004",
 				"REPLAYED false", "REPLAYED true", "DATA_COUNT", "META_TOTAL_ITEMS");
 		assertThat(transcript).contains("=== finder-login ===", "/api/v1/auth/login",
-			"=== finder-stale-token-after-block ===", "STATUS 401", "ERROR_CODE AUTH-003");
+			"POST /api/v1/auth/login", "=== finder-stale-token-after-block ===", "GET /api/v1/users/me",
+			"STATUS 401", "ERROR_CODE AUTH-003");
 	}
 
 	private Observed curl(Request request) throws Exception {
@@ -329,7 +330,8 @@ class P1ManualHttpQaIntegrationTest {
 		if (!observed.request().method().equals("GET")) summary.append(" -X ").append(observed.request().method());
 		summary.append(" http://127.0.0.1:<RANDOM_PORT>").append(safePath(observed.request().path()));
 		if (observed.request().body() != null) summary.append(" --data <REDACTED_BODY>");
-		summary.append("\n");
+		summary.append("\nREQUEST ").append(observed.request().method()).append(" ")
+			.append(safePath(observed.request().path())).append("\n");
 		summary.append("STATUS ").append(observed.status()).append("\n")
 			.append("FIELDS ").append(String.join(",", fields)).append("\n");
 		if ("signed-found-image".equals(observed.request().label())
