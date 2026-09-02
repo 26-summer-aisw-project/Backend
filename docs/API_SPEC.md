@@ -615,7 +615,8 @@ P1 센터 수락 전에는 `PATCH /found-items/{itemId}/registration`으로 인�
 > POST `/lost-reports/{reportId}/candidate-accesses`
 
 - 신고 소유자가 포인트로 해당 신고의 후보 상세 열람 권한을 얻는다.
-- 같은 신고의 재시도·재매칭은 추가 차감하지 않는다.
+- 같은 신고의 같은 키·새 유효 키 재시도는 추가 차감하지 않고, 연결된 차감 원장 금액과 최초 차감 후 잔액을 그대로 재생한다.
+- 스냅샷 도입 전 열람은 추론하거나 역산하지 않고 `remainingBalance: null`을 명시적으로 반환한다.
 
 **요청 payload**
 
@@ -627,6 +628,12 @@ P1 센터 수락 전에는 `PATCH /found-items/{itemId}/registration`으로 인�
 
 ```json
 { "reportId": "900", "unlockedAt": "2026-08-24T11:00:00Z", "debitedPoints": 1, "remainingBalance": 9, "replayed": false }
+```
+
+기존 열람 재생 예시:
+
+```json
+{ "reportId": "900", "unlockedAt": "2026-08-24T11:00:00Z", "debitedPoints": 2, "remainingBalance": null, "replayed": true }
 ```
 
 #### list-unlocked-candidates

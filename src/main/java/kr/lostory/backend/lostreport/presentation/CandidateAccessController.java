@@ -37,7 +37,7 @@ public class CandidateAccessController {
 	}
 
 	@PostMapping("/{reportId}/candidate-accesses")
-	@Operation(summary = "후보 상세 열람 권한 획득", description = "신고별 최초 요청에서 포인트 한 점을 차감하고 기존 열람은 유효한 멱등 키로 추가 차감 없이 replayed=true 응답을 재생합니다. 사용한 키를 다른 신고나 사용자가 재사용하면 409 POINT-001입니다.")
+	@Operation(summary = "후보 상세 열람 권한 획득", description = "신고별 최초 요청에서 포인트를 차감하고 연결된 차감 원장 금액과 최초 차감 후 잔액을 불변 결과로 저장합니다. 같은 키나 새 유효 키로 재생해도 추가 차감하지 않으며, 스냅샷 도입 전 열람의 remainingBalance는 null입니다. 사용한 키를 다른 신고나 사용자가 재사용하면 409 POINT-001입니다.")
 	public CandidateAccessResponse unlock(
 			@PathVariable Long reportId,
 			@AuthenticationPrincipal Jwt jwt,

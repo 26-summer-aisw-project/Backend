@@ -45,35 +45,36 @@ public class CandidateAccessService {
 			throw new LostoryException(ErrorCode.REPORT_NOT_OPEN);
 		}
 
-		CandidateAccess access = locks.access(reportId);
-		PointAccount account = locks.account(requesterId);
 		CandidateAccessIdempotencyReceipt receipt = records.receipt(idempotencyKey);
 		if (receipt != null) {
 			if (!receipt.getUserId().equals(requesterId) || !receipt.getReportId().equals(reportId)) {
 				throw new LostoryException(ErrorCode.POINT_IDEMPOTENCY_CONFLICT);
 			}
 			CandidateAccess replayed = locks.accessById(receipt.getCandidateAccessId());
-			return response(replayed, account, true);
+			return response(replayed, records.linkedDebit(replayed), true);
 		}
 		if (records.ledgerKeyExists(idempotencyKey)) {
 			throw new LostoryException(ErrorCode.POINT_IDEMPOTENCY_CONFLICT);
 		}
+		CandidateAccess access = locks.access(reportId);
 		if (access != null) {
+			PointLedger debit = records.linkedDebit(access);
 			records.saveReceipt(idempotencyKey, access);
-			return response(access, account, true);
+			return response(access, debit, true);
 		}
+		PointAccount account = locks.account(requesterId);
 		if (!account.canDebit(policy.candidateAccessCost())) {
 			throw new LostoryException(ErrorCode.INSUFFICIENT_POINTS);
 		}
 		PointLedger debit = records.debit(requesterId, reportId, idempotencyKey, policy.candidateAccessCost());
 		locks.apply(account, debit);
-		CandidateAccess created = locks.create(reportId, requesterId, debit);
+		CandidateAccess created = locks.create(reportId, requesterId, debit, account.getBalance());
 		records.saveReceipt(idempotencyKey, created);
-		return response(created, account, false);
+		return response(created, debit, false);
 	}
 
-	private CandidateAccessResponse response(CandidateAccess access, PointAccount account, boolean replayed) {
+	private CandidateAccessResponse response(CandidateAccess access, PointLedger debit, boolean replayed) {
 		return new CandidateAccessResponse(access.getReportId().toString(), access.getUnlockedAt(),
-				policy.candidateAccessCost(), account.getBalance(), replayed);
+				Math.negateExact(debit.getAmount()), access.getRemainingBalance(), replayed);
 	}
 }

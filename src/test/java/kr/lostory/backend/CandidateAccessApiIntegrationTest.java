@@ -104,6 +104,104 @@ class CandidateAccessApiIntegrationTest {
 	}
 
 	@Test
+	void replayPreservesFirstDebitAndBalanceAfterAccountChanges() throws Exception {
+		// Given
+		User owner = user(10);
+		long reportId = report(owner.getId());
+		UUID firstKey = UUID.randomUUID();
+		CurlResponse first = curlPost(reportId, owner, firstKey);
+		jdbc.update("INSERT INTO point_ledger "
+				+ "(user_id, entry_type, amount, idempotency_key, reference_type, reference_id) "
+				+ "VALUES (?, 'CENTER_RETURN_REWARD', 5, ?, 'FOUND_ITEM_RETURN', 999)",
+				owner.getId(), UUID.randomUUID());
+		jdbc.update("UPDATE point_accounts SET balance = 14 WHERE user_id = ?", owner.getId());
+
+		// When
+		CurlResponse same = curlPost(reportId, owner, firstKey);
+		CurlResponse different = curlPost(reportId, owner, UUID.randomUUID());
+
+		// Then
+		assertAccessResult(first, 1, 9, false);
+		assertAccessResult(same, 1, 9, true);
+		assertAccessResult(different, 1, 9, true);
+		assertThat(count("point_ledger", reportId)).isOne();
+		assertThat(jdbc.queryForObject("SELECT count(*) FROM candidate_access_idempotency_receipts "
+				+ "WHERE report_id = ?", Integer.class, reportId)).isEqualTo(2);
+		System.out.println("CANDIDATE_REPLAY_CURL_OBSERVABLE command=curl -sS -i --max-time 15 "
+				+ "-H 'Authorization: Bearer <REDACTED_BEARER>' "
+				+ "-H 'Idempotency-Key: <REDACTED_UUID>' -X POST "
+				+ "'http://127.0.0.1:<RANDOM_PORT>/api/v1/lost-reports/<REPORT_ID>/candidate-accesses' "
+				+ "statuses=200,200,200 replayed=false,true,true debit=1,1,1 balance=9,9,9 "
+				+ "ledger=1 receipts=2");
+	}
+
+	@Test
+	void legacyReplayUsesLinkedDebitAndKeepsMissingBalanceExplicitlyNull() throws Exception {
+		// Given
+		User owner = user(8);
+		long reportId = report(owner.getId());
+		UUID firstKey = UUID.randomUUID();
+		long debitId = jdbc.queryForObject("INSERT INTO point_ledger "
+				+ "(user_id, entry_type, amount, idempotency_key, reference_type, reference_id) "
+				+ "VALUES (?, 'CANDIDATE_ACCESS_DEBIT', -2, ?, 'LOST_REPORT', ?) RETURNING id",
+				Long.class, owner.getId(), firstKey, reportId);
+		long accessId = jdbc.queryForObject("INSERT INTO candidate_accesses "
+				+ "(report_id, user_id, debit_transaction_id, remaining_balance) VALUES (?, ?, ?, NULL) RETURNING id",
+				Long.class, reportId, owner.getId(), debitId);
+		jdbc.update("INSERT INTO candidate_access_idempotency_receipts "
+				+ "(idempotency_key, user_id, report_id, candidate_access_id) VALUES (?, ?, ?, ?)",
+				firstKey, owner.getId(), reportId, accessId);
+
+		// When
+		CurlResponse same = curlPost(reportId, owner, firstKey);
+		CurlResponse different = curlPost(reportId, owner, UUID.randomUUID());
+
+		// Then
+		assertLegacyAccessResult(same);
+		assertLegacyAccessResult(different);
+		assertThat(jdbc.queryForObject("SELECT balance FROM point_accounts WHERE user_id = ?",
+				Integer.class, owner.getId())).isEqualTo(8);
+		assertThat(count("point_ledger", reportId)).isOne();
+		assertThat(jdbc.queryForObject("SELECT count(*) FROM candidate_access_idempotency_receipts "
+				+ "WHERE report_id = ?", Integer.class, reportId)).isEqualTo(2);
+		System.out.println("CANDIDATE_LEGACY_CURL_OBSERVABLE command=curl -sS -i --max-time 15 "
+				+ "-H 'Authorization: Bearer <REDACTED_BEARER>' "
+				+ "-H 'Idempotency-Key: <REDACTED_UUID>' -X POST "
+				+ "'http://127.0.0.1:<RANDOM_PORT>/api/v1/lost-reports/<REPORT_ID>/candidate-accesses' "
+				+ "statuses=200,200 replayed=true,true debit=2,2 remainingBalance=null,null "
+				+ "ledger=1 receipts=2 account=8");
+	}
+
+	@Test
+	void replayUsesLinkedDebitWhenCurrentPolicyDiffers() throws Exception {
+		// Given
+		User owner = user(9);
+		long reportId = report(owner.getId());
+		UUID firstKey = UUID.randomUUID();
+		long debitId = jdbc.queryForObject("INSERT INTO point_ledger "
+				+ "(user_id, entry_type, amount, idempotency_key, reference_type, reference_id) "
+				+ "VALUES (?, 'CANDIDATE_ACCESS_DEBIT', -2, ?, 'LOST_REPORT', ?) RETURNING id",
+				Long.class, owner.getId(), firstKey, reportId);
+		long accessId = jdbc.queryForObject("INSERT INTO candidate_accesses "
+				+ "(report_id, user_id, debit_transaction_id, remaining_balance) VALUES (?, ?, ?, 9) RETURNING id",
+				Long.class, reportId, owner.getId(), debitId);
+		jdbc.update("INSERT INTO candidate_access_idempotency_receipts "
+				+ "(idempotency_key, user_id, report_id, candidate_access_id) VALUES (?, ?, ?, ?)",
+				firstKey, owner.getId(), reportId, accessId);
+
+		// When
+		HttpResponse<String> same = post(reportId, owner, firstKey.toString());
+		HttpResponse<String> different = post(reportId, owner, UUID.randomUUID().toString());
+
+		// Then
+		assertAccessResult(same, 2, 9, true);
+		assertAccessResult(different, 2, 9, true);
+		assertThat(count("point_ledger", reportId)).isOne();
+		assertThat(jdbc.queryForObject("SELECT count(*) FROM candidate_access_idempotency_receipts "
+				+ "WHERE report_id = ?", Integer.class, reportId)).isEqualTo(2);
+	}
+
+	@Test
 	void reusedKeyAcrossReportsConflictsAndInsufficientBalanceRollsBack() throws Exception {
 		// Given
 		User owner = user(10);
@@ -412,6 +510,38 @@ class CandidateAccessApiIntegrationTest {
 		String reference = table.equals("point_ledger") ? "reference_id" : "report_id";
 		return jdbc.queryForObject("SELECT count(*) FROM " + table + " WHERE " + reference + " = ?",
 				Integer.class, reportId);
+	}
+
+	private void assertAccessResult(HttpResponse<String> response, int debit, int balance, boolean replayed)
+			throws Exception {
+		assertThat(response.statusCode()).isEqualTo(200);
+		JsonNode body = json.readTree(response.body());
+		assertThat(body.get("debitedPoints").isIntegralNumber()).isTrue();
+		assertThat(body.get("debitedPoints").asInt()).isEqualTo(debit);
+		assertThat(body.get("remainingBalance").isIntegralNumber()).isTrue();
+		assertThat(body.get("remainingBalance").asInt()).isEqualTo(balance);
+		assertThat(body.get("replayed").asBoolean()).isEqualTo(replayed);
+	}
+
+	private void assertAccessResult(CurlResponse response, int debit, int balance, boolean replayed)
+			throws Exception {
+		assertThat(response.status()).isEqualTo(200);
+		JsonNode body = json.readTree(response.body());
+		assertThat(body.get("debitedPoints").isIntegralNumber()).isTrue();
+		assertThat(body.get("debitedPoints").asInt()).isEqualTo(debit);
+		assertThat(body.get("remainingBalance").isIntegralNumber()).isTrue();
+		assertThat(body.get("remainingBalance").asInt()).isEqualTo(balance);
+		assertThat(body.get("replayed").asBoolean()).isEqualTo(replayed);
+	}
+
+	private void assertLegacyAccessResult(CurlResponse response) throws Exception {
+		assertThat(response.status()).isEqualTo(200);
+		JsonNode body = json.readTree(response.body());
+		assertThat(body.get("debitedPoints").isIntegralNumber()).isTrue();
+		assertThat(body.get("debitedPoints").asInt()).isEqualTo(2);
+		assertThat(body.has("remainingBalance")).isTrue();
+		assertThat(body.get("remainingBalance").isNull()).isTrue();
+		assertThat(body.get("replayed").asBoolean()).isTrue();
 	}
 
 	private record CurlResponse(int status, String body) {

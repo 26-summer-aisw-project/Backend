@@ -49,7 +49,7 @@ class CandidateAccessLocks {
 		accounts.flush();
 	}
 
-	CandidateAccess create(Long reportId, Long userId, PointLedger debit) {
-		return accesses.saveAndFlush(new CandidateAccess(reportId, userId, debit.getId()));
+	CandidateAccess create(Long reportId, Long userId, PointLedger debit, int remainingBalance) {
+		return accesses.saveAndFlush(new CandidateAccess(reportId, userId, debit.getId(), remainingBalance));
 	}
 }

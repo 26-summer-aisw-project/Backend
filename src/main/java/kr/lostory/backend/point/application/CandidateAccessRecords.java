@@ -35,6 +35,10 @@ class CandidateAccessRecords {
 		return ledger.saveAndFlush(PointLedger.candidateAccessDebit(userId, reportId, key, cost));
 	}
 
+	PointLedger linkedDebit(CandidateAccess access) {
+		return ledger.findById(access.getDebitTransactionId()).orElseThrow();
+	}
+
 	void saveReceipt(UUID key, CandidateAccess access) {
 		receipts.saveAndFlush(new CandidateAccessIdempotencyReceipt(
 				key, access.getUserId(), access.getReportId(), access.getId()));

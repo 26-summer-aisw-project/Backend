@@ -80,6 +80,16 @@ class OpenApiDocumentationIntegrationTest {
 	}
 
 	@Test
+	void candidateAccessBalanceIsRequiredAndNullableForLegacyReplay() throws Exception {
+		JsonNode schema = apiDocument().path("components").path("schemas").path("CandidateAccessResponse");
+		assertThat(schema.path("required").valueStream().map(JsonNode::asString).toList())
+				.contains("remainingBalance");
+		JsonNode balance = schema.path("properties").path("remainingBalance");
+		assertThat(balance.path("type").valueStream().map(JsonNode::asString).toList()).contains("null");
+		assertThat(balance.path("description").asString()).contains("스냅샷 도입 전");
+	}
+
+	@Test
 	void generatedDocumentDeclaresOperationSpecificExecutableErrorStatuses() throws Exception {
 		// Given
 		JsonNode api = apiDocument();

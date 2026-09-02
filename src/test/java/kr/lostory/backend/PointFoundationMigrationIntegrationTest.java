@@ -85,9 +85,9 @@ class PointFoundationMigrationIntegrationTest {
 		// Then
 		assertThat(jdbc.queryForList(
 			"SELECT version FROM flyway_schema_history "
-				+ "WHERE version IN ('27', '28', '29', '30', '31', '32', '33', '34') ORDER BY installed_rank",
+				+ "WHERE version IN ('27', '28', '29', '30', '31', '32', '33', '34', '35') ORDER BY installed_rank",
 			String.class
-		)).containsExactly("27", "28", "29", "30", "31", "32", "33", "34");
+		)).containsExactly("27", "28", "29", "30", "31", "32", "33", "34", "35");
 		assertThat(jdbc.queryForObject("SELECT amount FROM point_ledger WHERE id = 203", Integer.class))
 			.isEqualTo(-2);
 		assertThat(jdbc.queryForObject(
@@ -98,7 +98,7 @@ class PointFoundationMigrationIntegrationTest {
 		insertCandidateAccess(1001, 101, 204, "00000000-0000-0000-0000-000000000024");
 		assertThat(jdbc.queryForObject("SELECT amount FROM point_ledger WHERE id = 204", Integer.class))
 			.isEqualTo(-1);
-		System.out.println("POINT_V26_DIRECT_COMPATIBILITY_OBSERVABLE versions=27-34 legacy=-2 current=-1 "
+		System.out.println("POINT_V26_DIRECT_COMPATIBILITY_OBSERVABLE versions=27-35 legacy=-2 current=-1 "
 			+ "balance=3 staging=absent");
 	}
 
@@ -405,12 +405,43 @@ class PointFoundationMigrationIntegrationTest {
 	}
 
 	@Test
+	void v34CandidateAccessGainsNullableSnapshotWithoutChangingHistoricalFacts() {
+		// Given
+		migrateCleanTo("34");
+		jdbc.update("INSERT INTO users (id, email, password_hash, status, role, created_at, updated_at) "
+				+ "VALUES (101, 'snapshot@example.test', 'hash', 'ACTIVE', 'USER', now(), now())");
+		jdbc.update("INSERT INTO point_accounts (user_id, balance) VALUES (101, 8)");
+		insertReport(1001, 101);
+		long accessId = insertCandidateAccess(1001, 101, 301,
+				"00000000-0000-0000-0000-000000000031");
+		jdbc.update("INSERT INTO candidate_access_idempotency_receipts "
+				+ "(idempotency_key, user_id, report_id, candidate_access_id) "
+				+ "VALUES ('00000000-0000-0000-0000-000000000041', 101, 1001, ?)", accessId);
+
+		// When
+		migrateTo("35");
+		migrateTo("35");
+
+		// Then
+		assertThat(jdbc.queryForObject("SELECT remaining_balance FROM candidate_accesses WHERE id = ?",
+				Integer.class, accessId)).isNull();
+		assertThat(jdbc.queryForObject("SELECT debit_transaction_id FROM candidate_accesses WHERE id = ?",
+				Long.class, accessId)).isEqualTo(301L);
+		assertThat(jdbc.queryForObject("SELECT balance FROM point_accounts WHERE user_id = 101",
+				Integer.class)).isEqualTo(8);
+		assertThat(jdbc.queryForObject("SELECT count(*) FROM candidate_access_idempotency_receipts",
+				Integer.class)).isOne();
+		assertThatThrownBy(() -> jdbc.update("UPDATE candidate_accesses SET remaining_balance = -1 WHERE id = ?",
+				accessId)).hasRootCauseInstanceOf(java.sql.SQLException.class);
+	}
+
+	@Test
 	void laterTransactionalMigrationFailureLeavesNoResidueAndRecoversExactlyOnce(@TempDir Path migrationDirectory)
 		throws IOException {
 		// Given
 		migrateToV26();
 		migrateLatest();
-		writeMigration(migrationDirectory, "V35__test_failure.sql", """
+		writeMigration(migrationDirectory, "V36__test_failure.sql", """
 			CREATE TABLE migration_failure_probe (id BIGINT PRIMARY KEY);
 			INSERT INTO migration_failure_probe (id) VALUES (1);
 			INSERT INTO vision_daily_admissions (admission_date, reserved_count) VALUES (DATE '2099-01-01', 1);
@@ -426,11 +457,11 @@ class PointFoundationMigrationIntegrationTest {
 			Integer.class
 		)).isZero();
 		assertThat(jdbc.queryForObject(
-			"SELECT count(*) FROM flyway_schema_history WHERE version = '35'",
+			"SELECT count(*) FROM flyway_schema_history WHERE version = '36'",
 			Integer.class
 		)).isZero();
 
-		writeMigration(migrationDirectory, "V35__test_failure.sql", """
+		writeMigration(migrationDirectory, "V36__test_failure.sql", """
 			CREATE TABLE migration_recovery_probe (id BIGINT PRIMARY KEY);
 			INSERT INTO migration_recovery_probe (id) VALUES (1);
 			""");
@@ -439,10 +470,10 @@ class PointFoundationMigrationIntegrationTest {
 
 		assertThat(jdbc.queryForObject("SELECT count(*) FROM migration_recovery_probe", Integer.class)).isOne();
 		assertThat(jdbc.queryForObject(
-			"SELECT count(*) FROM flyway_schema_history WHERE version = '35' AND success",
+			"SELECT count(*) FROM flyway_schema_history WHERE version = '36' AND success",
 			Integer.class
 		)).isOne();
-		System.out.println("POINT_FAILURE_RECOVERY_OBSERVABLE residue=0 recovered-version=35 applied=1 rerun=no-op");
+		System.out.println("POINT_FAILURE_RECOVERY_OBSERVABLE residue=0 recovered-version=36 applied=1 rerun=no-op");
 	}
 
 	private static void migrateToV27() {
