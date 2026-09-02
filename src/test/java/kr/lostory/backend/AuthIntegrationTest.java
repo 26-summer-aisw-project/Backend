@@ -102,6 +102,19 @@ class AuthIntegrationTest {
 		JsonNode loginJson = json(login);
 		assertThat(signup.statusCode()).describedAs(signup.body()).isEqualTo(201);
 		assertSafeUser(json(signup), email, "테스트 사용자");
+		assertThat(fieldNames(json(signup))).doesNotContain("balance", "points", "ledger");
+		assertThat(jdbcTemplate.queryForObject(
+			"SELECT count(*) FROM point_accounts a JOIN users u ON u.id = a.user_id "
+				+ "WHERE u.email = ? AND u.status = 'ACTIVE' AND u.role = 'USER' AND a.balance = 10",
+			Integer.class,
+			email
+		)).isOne();
+		assertThat(jdbcTemplate.queryForObject(
+			"SELECT count(*) FROM point_ledger l JOIN users u ON u.id = l.user_id "
+				+ "WHERE u.email = ? AND l.entry_type = 'SIGNUP_GRANT' AND l.amount = 10",
+			Integer.class,
+			email
+		)).isOne();
 		assertThat(login.statusCode()).describedAs(login.body()).isEqualTo(200);
 		HttpResponse<String> me = get("/api/v1/users/me", loginJson.get("accessToken").asString());
 
@@ -178,6 +191,12 @@ class AuthIntegrationTest {
 		assertThat(new int[]{first.statusCode(), second.statusCode()}).containsExactlyInAnyOrder(201, 409);
 		assertThat(json(first.statusCode() == 409 ? first : second).get("code").asString()).isEqualTo("AUTH-001");
 		assertThat(jdbcTemplate.queryForObject("select count(*) from users where email = ?", Integer.class, email)).isEqualTo(1);
+		assertThat(jdbcTemplate.queryForObject(
+			"SELECT count(*) FROM point_ledger l JOIN users u ON u.id = l.user_id "
+				+ "WHERE u.email = ? AND l.entry_type = 'SIGNUP_GRANT'",
+			Integer.class,
+			email
+		)).isOne();
 
 		HttpResponse<String> unknown = post("/api/v1/auth/login", credentials(uniqueEmail(), PASSWORD));
 		HttpResponse<String> wrong = post("/api/v1/auth/login", credentials(email, "Wrong-Password-42"));

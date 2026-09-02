@@ -446,6 +446,11 @@ class FoundItemLifecycleCleanupIntegrationTest {
         }
 
         @Override
+        public PresignedGet presignGet(String key, Instant expiresAt) {
+            return new PresignedGet(java.net.URI.create("https://signed.example.test/private-image"), expiresAt);
+        }
+
+        @Override
         public Optional<ObjectMetadata> head(String key) {
             return Optional.ofNullable(objects.get(key));
         }

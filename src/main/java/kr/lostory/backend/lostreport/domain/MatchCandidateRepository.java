@@ -9,6 +9,8 @@ import org.springframework.data.repository.query.Param;
 
 public interface MatchCandidateRepository extends JpaRepository<MatchCandidate, Long> {
 
+	boolean existsByReportIdAndItemId(Long reportId, Long itemId);
+
 	@Modifying
 	@Query("delete from MatchCandidate candidate where candidate.reportId = :reportId")
 	void deleteAllByReportId(@Param("reportId") Long reportId);

@@ -37,6 +37,13 @@ public class PointLedger {
 
 	private String reason;
 
+	@Enumerated(EnumType.STRING)
+	@Column(name = "reference_type")
+	private PointReferenceType referenceType;
+
+	@Column(name = "reference_id")
+	private Long referenceId;
+
 	@Column(name = "created_at", nullable = false)
 	private Instant createdAt;
 
@@ -50,5 +57,35 @@ public class PointLedger {
 		this.idempotencyKey = idempotencyKey;
 		this.reason = reason;
 		this.createdAt = Instant.now();
+	}
+
+	public static PointLedger signupGrant(Long userId, UUID idempotencyKey, int amount) {
+		return new PointLedger(userId, PointEntryType.SIGNUP_GRANT, amount, idempotencyKey, null);
+	}
+
+	public static PointLedger candidateAccessDebit(Long userId, Long reportId, UUID idempotencyKey, int cost) {
+		PointLedger ledger = new PointLedger(
+			userId,
+			PointEntryType.CANDIDATE_ACCESS_DEBIT,
+			-cost,
+			idempotencyKey,
+			null
+		);
+		ledger.referenceType = PointReferenceType.LOST_REPORT;
+		ledger.referenceId = reportId;
+		return ledger;
+	}
+
+	public static PointLedger centerReturnReward(Long userId, Long returnId, UUID idempotencyKey, int amount) {
+		PointLedger ledger = new PointLedger(
+			userId,
+			PointEntryType.CENTER_RETURN_REWARD,
+			amount,
+			idempotencyKey,
+			null
+		);
+		ledger.referenceType = PointReferenceType.FOUND_ITEM_RETURN;
+		ledger.referenceId = returnId;
+		return ledger;
 	}
 }

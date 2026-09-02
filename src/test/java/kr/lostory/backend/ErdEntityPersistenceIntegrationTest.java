@@ -163,7 +163,8 @@ class ErdEntityPersistenceIntegrationTest {
 		CandidateAccess access = candidateAccessRepository.saveAndFlush(new CandidateAccess(
 				report.getId(),
 				user.getId(),
-				ledger.getId()
+				ledger.getId(),
+				9
 		));
 		AuditLog auditLog = auditLogRepository.saveAndFlush(new AuditLog(
 				user.getId(),

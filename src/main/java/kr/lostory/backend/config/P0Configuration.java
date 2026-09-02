@@ -14,7 +14,8 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 	ObjectStorageProperties.class,
 	VisionProperties.class,
 	MatchingProperties.class,
-	LostReportProperties.class
+	LostReportProperties.class,
+	kr.lostory.backend.point.domain.PointPolicy.class
 })
 public class P0Configuration {
 

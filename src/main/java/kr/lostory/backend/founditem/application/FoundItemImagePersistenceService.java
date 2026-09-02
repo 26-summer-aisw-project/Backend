@@ -31,6 +31,7 @@ public class FoundItemImagePersistenceService {
     private final ItemFeatureRepository featureRepository;
     private final LostReportRepository reportRepository;
     private final P0AuditService audit;
+    private final FoundItemLifecycleCleanupService lifecycle;
 
     public FoundItemImagePersistenceService(
             FoundItemRepository foundItemRepository,
@@ -39,7 +40,8 @@ public class FoundItemImagePersistenceService {
             ObjectDeletionOutboxRepository deletionOutboxRepository,
             ItemFeatureRepository featureRepository,
             LostReportRepository reportRepository,
-            P0AuditService audit
+            P0AuditService audit,
+            FoundItemLifecycleCleanupService lifecycle
     ) {
         this.foundItemRepository = foundItemRepository;
         this.imageRepository = imageRepository;
@@ -48,15 +50,17 @@ public class FoundItemImagePersistenceService {
         this.featureRepository = featureRepository;
         this.reportRepository = reportRepository;
         this.audit = audit;
+        this.lifecycle = lifecycle;
     }
 
-    @Transactional
+    @Transactional(noRollbackFor = LostoryException.class)
     public FoundItemImage commitUpload(Long foundItemId, Long requesterId, PendingImage pending) {
         FoundItem item = foundItemRepository.findByIdForUpdate(foundItemId)
                 .orElseThrow(() -> new LostoryException(ErrorCode.RESOURCE_NOT_FOUND));
         if (!item.getFinderId().equals(requesterId)) {
             throw new LostoryException(ErrorCode.RESOURCE_NOT_FOUND);
         }
+        lifecycle.admit(foundItemId);
         if (!item.isRegistrationMutable()) {
             throw new LostoryException(ErrorCode.INVALID_REQUEST);
         }

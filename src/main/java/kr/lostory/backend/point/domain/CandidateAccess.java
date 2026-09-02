@@ -31,13 +31,17 @@ public class CandidateAccess {
 	@Column(name = "unlocked_at", nullable = false)
 	private Instant unlockedAt;
 
+	@Column(name = "remaining_balance")
+	private Integer remainingBalance;
+
 	protected CandidateAccess() {
 	}
 
-	public CandidateAccess(Long reportId, Long userId, Long debitTransactionId) {
+	public CandidateAccess(Long reportId, Long userId, Long debitTransactionId, int remainingBalance) {
 		this.reportId = reportId;
 		this.userId = userId;
 		this.debitTransactionId = debitTransactionId;
 		this.unlockedAt = Instant.now();
+		this.remainingBalance = remainingBalance;
 	}
 }

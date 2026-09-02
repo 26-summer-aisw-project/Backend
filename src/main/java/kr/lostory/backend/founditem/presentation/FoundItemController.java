@@ -1,5 +1,8 @@
 package kr.lostory.backend.founditem.presentation;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import java.util.List;
 import java.util.Set;
 import kr.lostory.backend.common.exception.ErrorCode;
@@ -27,6 +30,8 @@ import jakarta.validation.Valid;
 
 @RestController
 @RequestMapping("/api/v1/found-items")
+@Tag(name = "습득물", description = "사진 초안부터 사용자 인계 확정까지의 습득물 API")
+@SecurityRequirement(name = "bearerAuth")
 public class FoundItemController {
 
     private final FoundItemService foundItemService;
@@ -37,13 +42,9 @@ public class FoundItemController {
         this.imageService = imageService;
     }
 
-    @PostMapping
-    public void retiredRegister() {
-        throw new LostoryException(ErrorCode.RESOURCE_NOT_FOUND);
-    }
-
     @PostMapping("/drafts")
     @ResponseStatus(HttpStatus.CREATED)
+    @Operation(summary = "습득물 초안 생성", description = "정확히 한 장의 사진으로 소유자 전용 DRAFT 습득물을 만들고 Vision 작업을 시작합니다.")
     public FoundItemDraftResponse createDraft(
             @AuthenticationPrincipal Jwt jwt,
             @RequestPart("image") List<MultipartFile> images,
@@ -58,6 +59,7 @@ public class FoundItemController {
     }
 
     @GetMapping("/{id}")
+    @Operation(summary = "습득물 상세 조회", description = "소유자 또는 관리자가 등록 진행 상태와 Vision 제안을 조회합니다.")
     public FoundItemDetailResponse get(
             @PathVariable Long id,
             @AuthenticationPrincipal Jwt jwt
@@ -68,6 +70,7 @@ public class FoundItemController {
     }
 
     @PatchMapping("/{id}/registration")
+    @Operation(summary = "습득물 등록 확정", description = "습득 위치, 시각, 분류, 공개 특징과 보관 방식을 저장해 등록을 확정합니다.")
     public FoundItemRegistrationResponse finalizeRegistration(
             @PathVariable Long id,
             @AuthenticationPrincipal Jwt jwt,
@@ -77,6 +80,7 @@ public class FoundItemController {
     }
 
     @PostMapping("/{id}:confirm-handover")
+    @Operation(summary = "센터 인계 확정", description = "소유자가 선택한 센터에 습득물을 인계했음을 본문 없이 확정합니다.")
     public FoundItemRegistrationResponse confirmHandover(
             @PathVariable Long id,
             @AuthenticationPrincipal Jwt jwt,
@@ -89,6 +93,7 @@ public class FoundItemController {
     }
 
     @GetMapping
+    @Operation(summary = "내 습득물 목록 조회", description = "현재 사용자가 만든 습득물을 상태 필터와 페이지 조건으로 조회합니다.")
     public FoundItemListResponse list(
             @AuthenticationPrincipal Jwt jwt,
             @RequestParam(defaultValue = "1") int page,
@@ -101,13 +106,4 @@ public class FoundItemController {
         return foundItemService.list(Long.valueOf(jwt.getSubject()), status, page, pageSize);
     }
 
-    @PostMapping("/{id}/images")
-    public void retiredImageUpload(@PathVariable Long id) {
-        throw new LostoryException(ErrorCode.RESOURCE_NOT_FOUND);
-    }
-
-    @GetMapping("/{id}/images")
-    public void retiredImageList(@PathVariable Long id) {
-        throw new LostoryException(ErrorCode.RESOURCE_NOT_FOUND);
-    }
 }

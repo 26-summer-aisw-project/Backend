@@ -2,5 +2,6 @@ package kr.lostory.backend.user.domain;
 
 public enum UserRole {
 	USER,
-	ADMIN
+	ADMIN,
+	CENTER_MANAGER
 }

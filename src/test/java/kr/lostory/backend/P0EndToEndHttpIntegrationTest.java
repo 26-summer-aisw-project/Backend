@@ -8,6 +8,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -16,6 +17,7 @@ import kr.lostory.backend.founditem.application.FoundItemLifecycleCleanupService
 import kr.lostory.backend.founditem.application.VisionJobWorker;
 import kr.lostory.backend.founditem.application.VisionProvider;
 import kr.lostory.backend.founditem.application.VisionProviderException;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -36,7 +38,6 @@ import tools.jackson.databind.ObjectMapper;
         properties = "center.nearby-radius=1001")
 class P0EndToEndHttpIntegrationTest {
 
-    private static final Instant NOW = Instant.parse("2026-08-25T00:00:00Z");
     private static final byte[] READY_PNG = {(byte) 0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1};
     private static final byte[] FAILED_PNG = {(byte) 0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 2};
     private static final String PASSWORD = "Correct-Horse-42";
@@ -61,10 +62,17 @@ class P0EndToEndHttpIntegrationTest {
         jdbc.update("DELETE FROM object_deletion_outbox");
         jdbc.update("DELETE FROM found_item_images");
         jdbc.update("DELETE FROM item_features");
+        jdbc.update("DELETE FROM center_handovers");
         jdbc.update("DELETE FROM found_items");
         jdbc.update("DELETE FROM lost_centers WHERE source_key LIKE 'p0-e2e:%'");
         storage.reset();
-        clock.set(NOW);
+        clock.set(jdbc.queryForObject("SELECT clock_timestamp()", Timestamp.class).toInstant()
+                .minus(Duration.ofMinutes(5)));
+    }
+
+    @AfterEach
+    void cleanupFixture() {
+        reset();
     }
 
     @Test
@@ -79,11 +87,37 @@ class P0EndToEndHttpIntegrationTest {
         String itemId = body(drafted).get("id").asString();
         assertThat(drafted.statusCode()).isEqualTo(201);
         assertThat(body(drafted).get("status").asString()).isEqualTo("DRAFT");
+        assertThat(jdbc.update("""
+                UPDATE found_item_vision_jobs
+                SET next_attempt_at = clock_timestamp() + INTERVAL '1 hour'
+                WHERE found_item_id = ? AND status = 'PENDING'
+                """, Long.valueOf(itemId))).isOne();
+        assertThat(vision.processNext()).isFalse();
+        assertThat(jdbc.queryForMap("""
+                SELECT job.status, job.attempt_count, item.vision_status
+                FROM found_item_vision_jobs job
+                JOIN found_items item ON item.id = job.found_item_id
+                WHERE job.found_item_id = ?
+                """, Long.valueOf(itemId)))
+                .containsEntry("status", "PENDING")
+                .containsEntry("attempt_count", 0)
+                .containsEntry("vision_status", "PENDING");
+        makeVisionDue(itemId);
+        assertThat(jdbc.queryForObject("""
+                SELECT next_attempt_at <= clock_timestamp()
+                FROM found_item_vision_jobs WHERE found_item_id = ? AND status = 'PENDING'
+                """, Boolean.class, Long.valueOf(itemId))).isTrue();
         assertThat(vision.processNext()).isTrue();
         JsonNode ready = body(get("/api/v1/found-items/" + itemId, token));
 
         // Then: nearby policy, finalization, and empty-body confirmation stay observable
         assertThat(ready.get("visionStatus").asString()).isEqualTo("READY");
+        assertThat(jdbc.queryForMap("""
+                SELECT status, attempt_count FROM found_item_vision_jobs WHERE found_item_id = ?
+                """, Long.valueOf(itemId)))
+                .containsEntry("status", "READY")
+                .containsEntry("attempt_count", 1);
+        assertThat(vision.processNext()).isFalse();
         HttpResponse<String> nearby = get("/api/v1/lost-centers/nearby?latitude=35&longitude=128", token);
         assertThat(nearby.statusCode()).isEqualTo(200);
         assertThat(nearby.body()).contains("p0-e2e:near").doesNotContain("p0-e2e:outside-1001");
@@ -128,12 +162,16 @@ class P0EndToEndHttpIntegrationTest {
         // When: known Vision failure exhausts three deterministic attempts
         String failedId = body(multipart(owner, FAILED_PNG)).get("id").asString();
         for (int attempt = 0; attempt < 3; attempt++) {
+            makeVisionDue(failedId);
             assertThat(vision.processNext()).isTrue();
-            jdbc.update("UPDATE found_item_vision_jobs SET next_attempt_at = clock_timestamp() WHERE found_item_id = ?",
-                    Long.valueOf(failedId));
         }
         JsonNode failed = body(get("/api/v1/found-items/" + failedId, owner));
         assertThat(failed.get("visionStatus").asString()).isEqualTo("FAILED");
+        assertThat(jdbc.queryForMap("""
+                SELECT status, attempt_count FROM found_item_vision_jobs WHERE found_item_id = ?
+                """, Long.valueOf(failedId)))
+                .containsEntry("status", "FAILED")
+                .containsEntry("attempt_count", 3);
 
         // When: forced matcher rollback through real owner GET
         jdbc.update("UPDATE lost_reports SET candidates_stale = true WHERE id = ?", Long.valueOf(reportId));
@@ -174,10 +212,19 @@ class P0EndToEndHttpIntegrationTest {
 
     private String activeItem(String token) throws Exception {
         String id = body(multipart(token, READY_PNG)).get("id").asString();
+        makeVisionDue(id);
         assertThat(vision.processNext()).isTrue();
         assertThat(request("PATCH", "/api/v1/found-items/" + id + "/registration", token,
                 registration(null)).statusCode()).isEqualTo(200);
         return id;
+    }
+
+    private void makeVisionDue(String itemId) {
+        assertThat(jdbc.update("""
+                UPDATE found_item_vision_jobs
+                SET next_attempt_at = clock_timestamp()
+                WHERE found_item_id = ? AND status = 'PENDING'
+                """, Long.valueOf(itemId))).isOne();
     }
 
     private long center(String name, double meters) {

@@ -11,6 +11,9 @@ public class P0AuditService {
 
     private static final String FOUND_ITEM = "FOUND_ITEM";
     private static final String LOST_CENTER = "LOST_CENTER";
+    private static final String CENTER_PARTNERSHIP = "CENTER_PARTNERSHIP";
+    private static final String CENTER_HANDOVER = "CENTER_HANDOVER";
+    private static final String RETURN_RECORD = "RETURN_RECORD";
 
     private final AuditLogRepository repository;
 
@@ -46,6 +49,36 @@ public class P0AuditService {
     @Transactional(propagation = Propagation.MANDATORY)
     public void centerDirectoryCreated(Long adminId, Long centerId) {
         record(adminId, "CENTER_DIRECTORY_CREATED", LOST_CENTER, centerId);
+    }
+
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void partnerCenterCreated(Long adminId, Long partnershipId) {
+        record(adminId, "PARTNER_CENTER_CREATED", CENTER_PARTNERSHIP, partnershipId);
+    }
+
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void partnerCenterApproved(Long adminId, Long partnershipId) {
+        record(adminId, "PARTNER_CENTER_APPROVED", CENTER_PARTNERSHIP, partnershipId);
+    }
+
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void partnerManagerActivated(Long managerId, Long partnershipId) {
+        record(managerId, "PARTNER_MANAGER_ACTIVATED", CENTER_PARTNERSHIP, partnershipId);
+    }
+
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void handoverCenterAccepted(Long managerId, Long handoverId) {
+        record(managerId, "HANDOVER_CENTER_ACCEPTED", CENTER_HANDOVER, handoverId);
+    }
+
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void handoverCenterRejected(Long managerId, Long handoverId) {
+        record(managerId, "HANDOVER_CENTER_REJECTED", CENTER_HANDOVER, handoverId);
+    }
+
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void itemReturned(Long managerId, Long returnId) {
+        record(managerId, "ITEM_RETURNED", RETURN_RECORD, returnId);
     }
 
     private void record(Long userId, String action, String targetType, Long targetId) {

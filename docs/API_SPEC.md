@@ -1,15 +1,15 @@
 # LOSTORY API 계약
 
-**상태:** P0 구현 동기화 · 2026-08-25
+**상태:** P0 21개 + P1 11개 구현 동기화 · 2026-08-27
 **Base path:** `/api/v1`
-**전송 형식:** HTTPS JSON. 사진 생성·교체는 `multipart/form-data`, 사진 조회는 원본 바이트를 사용한다.
+**전송 형식:** HTTPS JSON. 사진 생성·교체는 `multipart/form-data`, 사진 조회는 비공개 객체의 5분 유효 서명 URL JSON을 사용한다.
 
 이 문서는 [MVP 구현 기준](./MVP_IMPLEMENTATION_PLAN.md)의 HTTP 계약이다. 이전 OpenAPI YAML과 이전 payload 초안은 이 문서와 다르면 사용하지 않는다.
 
 ## 1. 공통 규칙
 
 - 경로의 ID와 User·센터·습득물·신고·후보 응답 ID, JWT `sub`는 10진 문자열이다. 현재 사진 교체 응답의 이미지 `id`, `foundItemId`만 JSON number다.
-- 가입·로그인만 공개다. 나머지 P0 경로는 Bearer JWT가 필요하다.
+- 회원가입·로그인·파트너 담당자 활성화만 공개다. 나머지 경로는 Bearer JWT가 필요하다.
 - P1 대시보드 경로는 활성 대시보드 관리 계정만, `/admin/*`은 ADMIN만 사용한다.
 - 오류는 `{ "code": "...", "message": "..." }` 형식이다.
 - 존재를 숨겨야 하는 타인 FoundItem·LostReport는 `404`를, 명백한 ADMIN/대시보드 권한 위반은 `403`을 반환한다.
@@ -35,6 +35,28 @@
 { "code": "REPORT_NOT_OPEN", "message": "The lost report is not open." }
 ```
 
+아래 JSON은 HTTP 상태, 오류 코드, 재생 여부를 도구가 직접 읽을 수 있는 정확한 오류 계약이다.
+
+```json
+[
+  { "code": "COMMON-001", "httpStatus": 400, "replay": false, "meaning": "malformed-or-invalid-request" },
+  { "code": "COMMON-002", "httpStatus": 401, "replay": false, "meaning": "authentication-required" },
+  { "code": "COMMON-003", "httpStatus": 403, "replay": false, "meaning": "role-forbidden" },
+  { "code": "COMMON-004", "httpStatus": 404, "replay": false, "meaning": "missing-or-concealed-resource" },
+  { "code": "COMMON-005", "httpStatus": 500, "replay": false, "meaning": "internal-error" },
+  { "code": "MEDIA_NOT_AVAILABLE", "httpStatus": 410, "replay": false, "meaning": "terminal-media-unavailable" },
+  { "code": "VISION-001", "httpStatus": 429, "replay": false, "meaning": "vision-capacity-exceeded" },
+  { "code": "REPORT_NOT_OPEN", "httpStatus": 409, "replay": false, "meaning": "report-not-open" },
+  { "code": "STATE-001", "httpStatus": 409, "replay": false, "meaning": "invalid-state" },
+  { "code": "AUTH-001", "httpStatus": 409, "replay": false, "meaning": "duplicate-email" },
+  { "code": "AUTH-002", "httpStatus": 401, "replay": false, "meaning": "invalid-credentials" },
+  { "code": "AUTH-003", "httpStatus": 401, "replay": false, "meaning": "invalid-access-token" },
+  { "code": "POINT-001", "httpStatus": 409, "replay": false, "meaning": "idempotency-key-conflict" },
+  { "code": "POINT-002", "httpStatus": 409, "replay": false, "meaning": "insufficient-points" },
+  { "code": null, "httpStatus": 200, "replay": true, "meaning": "same-report-existing-access-with-valid-key" }
+]
+```
+
 ### 1.3 FoundItem 응답 범위
 
 P0에는 모든 FoundItem 필드를 한 번에 반환하는 공통 응답이 없다. 아래 각 엔드포인트의 payload가 실제 계약이다. 원본 Vision 값, 스토리지 키, 비공개 특징은 어떤 P0 응답에도 포함하지 않는다.
@@ -45,11 +67,12 @@ P0에는 모든 FoundItem 필드를 한 번에 반환하는 공통 응답이 없
 > POST `/auth/signup`
 
 - 공개 엔드포인트다. `ACTIVE` 상태의 일반 사용자를 만든다.
+- `password`는 UTF-8 기준 양끝을 포함해 8바이트 이상 72바이트 이하여야 한다.
 
 **요청 payload**
 
 ```json
-{ "email": "user@example.com", "password": "8바이트 이상 비밀번호", "displayName": "사용자" }
+{ "email": "user@example.com", "password": "8~72 UTF-8 바이트 비밀번호", "displayName": "사용자" }
 ```
 
 **응답 payload — 201 Created**
@@ -62,11 +85,12 @@ P0에는 모든 FoundItem 필드를 한 번에 반환하는 공통 응답이 없
 > POST `/auth/login`
 
 - 공개 엔드포인트다. 차단·삭제 계정도 일반적인 `401 AUTH-002`로 처리한다.
+- `password`는 UTF-8 기준 양끝을 포함해 8바이트 이상 72바이트 이하여야 한다.
 
 **요청 payload**
 
 ```json
-{ "email": "user@example.com", "password": "비밀번호" }
+{ "email": "user@example.com", "password": "8~72 UTF-8 바이트 비밀번호" }
 ```
 
 **응답 payload — 200 OK**
@@ -101,7 +125,7 @@ P0에는 모든 FoundItem 필드를 한 번에 반환하는 공통 응답이 없
 
 | 위치 | 필드 | 설명 |
 |---|---|---|
-| Query | `page`, `pageSize`, `q` | 선택. 기본 `1`, `20`, 검색어 |
+| Query | `page`, `pageSize`, `q` | 선택. 기본 `1`, `20`, 검색어. `page >= 1`, `1 <= pageSize <= 100` |
 
 **응답 payload — 200 OK**
 
@@ -205,7 +229,7 @@ P0에는 모든 FoundItem 필드를 한 번에 반환하는 공통 응답이 없
 #### get-found-item-image
 > GET `/found-items/{itemId}/image`
 
-- 소유자 또는 ADMIN이 현재 사진 원본을 조회한다. 객체 키나 서명 URL은 반환하지 않는다.
+- 소유자, ADMIN 또는 해당 습득물의 센터와 일치하는 활성 파트너십의 지정 담당자가 현재 비공개 사진의 5분 유효 GET 서명 URL을 조회한다. 센터 담당자는 현재 인계가 `USER_CONFIRMED` 또는 `CENTER_CONFIRMED`일 때만 접근할 수 있다. 외부·비활성 담당자와 거절·대체된 인계는 404로 은닉한다. 객체 키·저장 경로·저장 파일명은 반환하지 않으며 응답은 캐시하지 않는다.
 
 **요청 payload**
 
@@ -215,9 +239,11 @@ P0에는 모든 FoundItem 필드를 한 번에 반환하는 공통 응답이 없
 
 **응답 payload — 200 OK**
 
-| Header | Body |
-|---|---|
-| 업로드한 `Content-Type` | 이미지 바이트 |
+Header: `Cache-Control: no-store`
+
+```json
+{ "url": "https://signed.example/…", "expiresAt": "2026-08-23T08:45:00Z" }
+```
 
 #### replace-found-item-image
 > PUT `/found-items/{itemId}/image`
@@ -246,7 +272,7 @@ P0에는 모든 FoundItem 필드를 한 번에 반환하는 공통 응답이 없
 
 | 위치 | 필드 | 설명 |
 |---|---|---|
-| Query | `page`, `pageSize`, `status` | 선택. 상태 필터는 P0 상태값만 허용 |
+| Query | `page`, `pageSize`, `status` | 선택. 기본 `1`, `20`; `page >= 1`, `1 <= pageSize <= 100`; 상태 필터는 P0 상태값만 허용 |
 
 **응답 payload — 200 OK**
 
@@ -379,7 +405,7 @@ P1 센터 수락 전에는 `PATCH /found-items/{itemId}/registration`으로 인�
 
 | 위치 | 필드 | 설명 |
 |---|---|---|
-| Query | `page`, `pageSize`, `status` | 선택 |
+| Query | `page`, `pageSize`, `status` | 선택. 기본 `1`, `20`; `page >= 1`, `1 <= pageSize <= 100` |
 
 **응답 payload — 200 OK**
 
@@ -401,7 +427,7 @@ P1 센터 수락 전에는 `PATCH /found-items/{itemId}/registration`으로 인�
 **응답 payload — 200 OK**
 
 ```json
-{ "id": "900", "status": "OPEN", "effectiveSearchRadiusMeters": 1000, "radiusPolicyVersion": "p0-radius-v1", "centerGuidance": [{ "id": "20", "name": "캠퍼스 분실물 센터", "contactPhone": "02-000-0000", "distanceMeters": 210.0 }], "candidatesStale": false }
+{ "id": "900", "status": "OPEN", "effectiveSearchRadiusMeters": 1000, "radiusPolicyVersion": "p0-radius-v1", "centerGuidance": [{ "id": "20", "name": "캠퍼스 분실물 센터", "contactPhone": "02-000-0000", "distanceMeters": 210.0 }], "candidatesStale": false, "expiredAt": "2026-09-06T09:00:00Z", "createdAt": "2026-08-23T09:00:00Z", "updatedAt": "2026-08-23T09:00:00Z" }
 ```
 
 #### update-lost-report
@@ -481,31 +507,29 @@ P1 센터 수락 전에는 `PATCH /found-items/{itemId}/registration`으로 인�
 #### approve-partner-center
 > POST `/admin/partner-centers/{partnershipId}:approve`
 
-- ADMIN이 파트너십을 승인하고 별도 채널 전달용 일회성 활성화 링크를 발급한다.
+- ADMIN이 파트너십을 승인하고 암호화된 일회성 활성화 전달 자료를 내구성 있게 기록한다.
 
-**요청 payload**
-
-```json
-{}
-```
+요청 본문 없이 호출한다.
 
 **응답 payload — 200 OK**
 
 ```json
-{ "partnershipId": "50", "status": "PENDING_ACTIVATION", "activationUrl": "https://app.example/partner-activation/<opaque-token>", "expiresAt": "2026-08-24T09:30:00Z" }
+{ "partnershipId": "50", "status": "PENDING_ACTIVATION", "expiresAt": "2026-08-24T09:30:00Z" }
 ```
 
-링크는 24시간·1회 사용이며 재발급은 이전 링크를 폐기한다. URL은 감사 로그에 기록하지 않는다.
+활성화 capability는 24시간·1회 사용이며 재발급은 이전 자료를 폐기한다. 암호문은 별도 통제된 외부 운영 절차에서 사람이 조회·복호화·전달하며, 이 API는 조회 엔드포인트나 SMTP/백그라운드 전달 작업을 제공하지 않는다. URL은 응답·감사 로그·평문 DB 열에 기록하지 않는다.
 
 #### activate-partner-manager
 > POST `/partner-manager-activations/{activationToken}`
 
-- 새 관리 계정이 비밀번호를 설정하고 대시보드 전용으로 활성화된다.
+- 공개 경로에서 새 관리 계정이 비밀번호를 설정하고 대시보드 전용으로 활성화된다. 토큰은 24시간·1회 사용이며 성공·실패 응답이나 로그에 다시 노출하지 않는다.
+- 잘못된 형식·알 수 없음·만료·재발급으로 대체됨·이미 사용된 활성화 capability는 모두 `HTTP 404 COMMON-004`로 처리하며, 상태나 토큰 세부 정보를 구분해 노출하지 않는다.
+- `password`는 UTF-8 기준 양끝을 포함해 8바이트 이상 72바이트 이하여야 한다.
 
 **요청 payload**
 
 ```json
-{ "password": "8바이트 이상 비밀번호" }
+{ "password": "8~72 UTF-8 바이트 비밀번호" }
 ```
 
 **응답 payload — 200 OK**
@@ -518,6 +542,7 @@ P1 센터 수락 전에는 `PATCH /found-items/{itemId}/registration`으로 인�
 > GET `/dashboard/handovers`
 
 - 활성 관리 계정이 자기 센터를 선택한 사용자 인계 주장 대기열을 조회한다.
+- 센터 ID는 클라이언트 입력이 아니라 활성 파트너십에서만 결정한다. 다른 센터의 항목은 조회하거나 결정할 수 없다.
 
 **요청 payload**
 
@@ -535,6 +560,7 @@ P1 센터 수락 전에는 `PATCH /found-items/{itemId}/registration`으로 인�
 > POST `/dashboard/handovers/{handoverId}:accept`
 
 - 담당자가 실물을 확인한 경우에만 사용자 인계를 센터 확인으로 수락한다.
+- `privateFeatures`는 이 요청의 실물 확인에만 사용하며 저장·감사·로그·오류·응답에 포함하지 않는다. 빈 배열과 공백 문자열은 400이다.
 
 **요청 payload**
 
@@ -552,6 +578,7 @@ P1 센터 수락 전에는 `PATCH /found-items/{itemId}/registration`으로 인�
 > POST `/dashboard/handovers/{handoverId}:reject`
 
 - 담당자가 실물을 찾지 못하면 수락하지 않는다. 사용자 진술은 삭제하지 않는다.
+- 같은 인계에 대한 두 번째 또는 반대 결정은 409 `STATE-001`이다.
 
 **요청 payload**
 
@@ -588,18 +615,25 @@ P1 센터 수락 전에는 `PATCH /found-items/{itemId}/registration`으로 인�
 > POST `/lost-reports/{reportId}/candidate-accesses`
 
 - 신고 소유자가 포인트로 해당 신고의 후보 상세 열람 권한을 얻는다.
-- 같은 신고의 재시도·재매칭은 추가 차감하지 않는다.
+- 같은 신고의 같은 키·새 유효 키 재시도는 추가 차감하지 않고, 연결된 차감 원장 금액과 최초 차감 후 잔액을 그대로 재생한다.
+- 스냅샷 도입 전 열람은 추론하거나 역산하지 않고 `remainingBalance: null`을 명시적으로 반환한다.
 
 **요청 payload**
 
 | 위치 | 필드 | 설명 |
 |---|---|---|
-| Header | `Idempotency-Key` | 필수. 요청당 고유 키 |
+| Header | `Idempotency-Key` | 필수. 소문자 표준 UUID(v1~v5). 같은 신고의 기존 열람은 같은 키 또는 새 유효 키 모두 최초 결과를 `replayed: true`로 재생하며 추가 차감하지 않는다. 이미 사용한 키를 다른 신고나 다른 사용자가 재사용하면 `409 POINT-001`이다. |
 
 **응답 payload — 200 OK**
 
 ```json
 { "reportId": "900", "unlockedAt": "2026-08-24T11:00:00Z", "debitedPoints": 1, "remainingBalance": 9, "replayed": false }
+```
+
+기존 열람 재생 예시:
+
+```json
+{ "reportId": "900", "unlockedAt": "2026-08-24T11:00:00Z", "debitedPoints": 2, "remainingBalance": null, "replayed": true }
 ```
 
 #### list-unlocked-candidates
@@ -658,7 +692,7 @@ P1 센터 수락 전에는 `PATCH /found-items/{itemId}/registration`으로 인�
 
 | 위치 | 필드 | 설명 |
 |---|---|---|
-| Query | `page`, `pageSize` | 선택 |
+| Query | `page`, `pageSize` | 선택. 기본 `1`, `20`; `page >= 1`, `1 <= pageSize <= 100` |
 
 **응답 payload — 200 OK**
 
@@ -676,7 +710,7 @@ P1 센터 수락 전에는 `PATCH /found-items/{itemId}/registration`으로 인�
 
 ## 8. 폐기된 P0 경로
 
-아래 이전 경로는 호환 별칭이 아니며 `404`를 반환한다. 새 클라이언트는 호출하지 않는다.
+아래 이전 경로는 호환 별칭이 아니다. 인증이 필요한 폐기 경로는 유효한 Bearer 인증 뒤 `404 COMMON-004`를 반환하며, 익명 호출은 공통 보안 경계에서 먼저 `401 COMMON-002`가 될 수 있다. 새 클라이언트는 호출하지 않는다.
 
 | Method | 폐기 경로 | 대체 경로 |
 |---|---|---|

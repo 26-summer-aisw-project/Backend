@@ -12,6 +12,7 @@ import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.multipart.support.MissingServletRequestPartException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
+import org.springframework.web.bind.MissingRequestHeaderException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
@@ -49,6 +50,7 @@ public class GlobalExceptionHandler {
     @ExceptionHandler({
             MissingServletRequestPartException.class,
             MissingServletRequestParameterException.class,
+            MissingRequestHeaderException.class,
             MethodArgumentTypeMismatchException.class
     })
     public ResponseEntity<ErrorResponse> handleInvalidBoundaryException(Exception exception) {
@@ -61,7 +63,7 @@ public class GlobalExceptionHandler {
             HttpServletRequest request
     ) {
         if (request.getMethod().equals("POST")
-                && request.getRequestURI().matches("/api/v1/found-items/[0-9]+/image")) {
+                && request.getRequestURI().equals("/api/v1/found-items")) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(new ErrorResponse(ErrorCode.RESOURCE_NOT_FOUND));
         }
         return ResponseEntity.status(HttpStatus.METHOD_NOT_ALLOWED).body(new ErrorResponse(ErrorCode.INVALID_REQUEST));
@@ -88,7 +90,7 @@ public class GlobalExceptionHandler {
             case INTERNAL_SERVER_ERROR -> HttpStatus.INTERNAL_SERVER_ERROR;
             case MEDIA_NOT_AVAILABLE -> HttpStatus.GONE;
             case VISION_CAPACITY_EXCEEDED -> HttpStatus.TOO_MANY_REQUESTS;
-            case REPORT_NOT_OPEN -> HttpStatus.CONFLICT;
+            case REPORT_NOT_OPEN, INVALID_STATE, POINT_IDEMPOTENCY_CONFLICT, INSUFFICIENT_POINTS -> HttpStatus.CONFLICT;
             case DUPLICATE_EMAIL -> HttpStatus.CONFLICT;
             case INVALID_CREDENTIALS, INVALID_TOKEN -> HttpStatus.UNAUTHORIZED;
         };

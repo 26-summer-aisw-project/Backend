@@ -81,20 +81,20 @@ class GlobalExceptionHandlerTest {
     }
 
     @Test
-    void methodNotSupported404IsLimitedToRemovedImagePost() {
+    void methodNotSupported404IsLimitedToRetiredFoundItemPost() {
         GlobalExceptionHandler handler = new GlobalExceptionHandler();
         HttpRequestMethodNotSupportedException exception =
                 new HttpRequestMethodNotSupportedException("POST", List.of("GET"));
-        MockHttpServletRequest removedImagePost = new MockHttpServletRequest(
+        MockHttpServletRequest retiredFoundItemPost = new MockHttpServletRequest(
+                "POST", "/api/v1/found-items");
+        MockHttpServletRequest unrelatedImagePost = new MockHttpServletRequest(
                 "POST", "/api/v1/found-items/42/image");
-        MockHttpServletRequest unrelatedPut = new MockHttpServletRequest(
-                "PUT", "/api/v1/found-items/42/image");
 
-        ResponseEntity<ErrorResponse> removed = handler.handleMethodNotSupported(exception, removedImagePost);
-        ResponseEntity<ErrorResponse> unrelated = handler.handleMethodNotSupported(exception, unrelatedPut);
+        ResponseEntity<ErrorResponse> retired = handler.handleMethodNotSupported(exception, retiredFoundItemPost);
+        ResponseEntity<ErrorResponse> unrelated = handler.handleMethodNotSupported(exception, unrelatedImagePost);
 
-        assertThat(removed.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
-        assertThat(removed.getBody().code()).isEqualTo("COMMON-004");
+        assertThat(retired.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(retired.getBody().code()).isEqualTo("COMMON-004");
         assertThat(unrelated.getStatusCode()).isEqualTo(HttpStatus.METHOD_NOT_ALLOWED);
         assertThat(unrelated.getBody().code()).isEqualTo("COMMON-001");
     }

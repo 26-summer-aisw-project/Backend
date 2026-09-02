@@ -17,6 +17,16 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+
+      - name: Verify tested commit
+        shell: bash
+        run: |
+          EXPECTED_SHA="${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}"
+          ACTUAL_SHA="$(git rev-parse HEAD)"
+          echo "TESTED_SHA=$ACTUAL_SHA"
+          test "$ACTUAL_SHA" = "$EXPECTED_SHA"
 
       - name: Set up JDK 21
         uses: actions/setup-java@v4
@@ -29,3 +39,103 @@ jobs:
 
       - name: Run tests
         run: ./gradlew test
+
+      - name: Diagnose API contract matrix failure
+        if: failure()
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import re
+          import sys
+          import xml.etree.ElementTree as ET
+
+          report = "build/test-results/test/TEST-kr.lostory.backend.ApiContractIntegrationTest.xml"
+          allowed_rows = frozenset({
+              "GET /api/v1/dashboard/handovers",
+              "GET /api/v1/found-items",
+              "GET /api/v1/found-items/{foundItemId}/image",
+              "GET /api/v1/found-items/{foundItemId}/nearby-centers",
+              "GET /api/v1/found-items/{id}",
+              "GET /api/v1/lost-centers",
+              "GET /api/v1/lost-centers/nearby",
+              "GET /api/v1/lost-reports",
+              "GET /api/v1/lost-reports/{reportId}",
+              "GET /api/v1/lost-reports/{reportId}/candidates",
+              "GET /api/v1/lost-reports/{reportId}/candidates/unlocked",
+              "GET /api/v1/points/balance",
+              "GET /api/v1/points/ledger",
+              "GET /api/v1/users/me",
+              "PATCH /api/v1/admin/lost-centers/{centerId}",
+              "PATCH /api/v1/found-items/{id}/registration",
+              "PATCH /api/v1/lost-reports/{reportId}",
+              "POST /api/v1/admin/lost-centers",
+              "POST /api/v1/admin/partner-centers",
+              "POST /api/v1/admin/partner-centers/{partnershipId}:approve",
+              "POST /api/v1/auth/login",
+              "POST /api/v1/auth/signup",
+              "POST /api/v1/dashboard/handovers/{handoverId}:accept",
+              "POST /api/v1/dashboard/handovers/{handoverId}:reject",
+              "POST /api/v1/dashboard/returns",
+              "POST /api/v1/found-items/drafts",
+              "POST /api/v1/found-items/{id}:confirm-handover",
+              "POST /api/v1/lost-reports",
+              "POST /api/v1/lost-reports/{reportId}:close",
+              "POST /api/v1/lost-reports/{reportId}/candidate-accesses",
+              "POST /api/v1/partner-manager-activations/{activationToken}",
+              "PUT /api/v1/found-items/{foundItemId}/image",
+          })
+          row_pattern = "|".join(re.escape(row) for row in sorted(allowed_rows))
+          allowed_error_codes = frozenset({
+              "AUTH-001", "AUTH-002", "AUTH-003",
+              "COMMON-001", "COMMON-002", "COMMON-003", "COMMON-004", "COMMON-005",
+              "MEDIA_NOT_AVAILABLE", "NONE", "POINT-001", "POINT-002",
+              "REPORT_NOT_OPEN", "STATE-001", "VISION-001",
+          })
+          code_pattern = "|".join(re.escape(code) for code in sorted(allowed_error_codes))
+          pattern = re.compile(
+              rf"java\.lang\.AssertionError: matrix row (?P<row>{row_pattern}) "
+              r"expected HTTP (?P<expected>[0-9]{3}) actual HTTP (?P<actual>[0-9]{3}) "
+              rf"code (?P<code>{code_pattern})"
+          )
+          handler_row = "POST /api/v1/found-items/{id}:confirm-handover"
+          allowed_handler_categories = frozenset({
+              "DATA_ACCESS", "INVALID_ARGUMENT", "INVALID_STATE", "NOT_OBSERVED", "OTHER",
+          })
+          handler_pattern = "|".join(
+              re.escape(category) for category in sorted(allowed_handler_categories)
+          )
+          handler_failure_pattern = re.compile(
+              rf"java\.lang\.AssertionError: matrix row {re.escape(handler_row)} "
+              r"expected HTTP 200 actual HTTP 500 code COMMON\-005 "
+              rf"handler=(?P<handler>{handler_pattern})"
+          )
+          data_access_subtype_failure_pattern = re.compile(
+              r"^java\.lang\.AssertionError: matrix row POST /api/v1/found-items/\{id\}:confirm\-handover expected HTTP 200 actual HTTP 500 code COMMON\-005 handler=DATA_ACCESS diagnostic=\{dataAccessSubtype=(INTEGRITY|OTHER)\}$"
+          )
+
+          try:
+              failures = ET.parse(report).getroot().iter("failure")
+              for failure in failures:
+                  message = failure.attrib.get("message", "")
+                  data_access_subtype_match = data_access_subtype_failure_pattern.fullmatch(message)
+                  if data_access_subtype_match:
+                      print(f"matrix row {handler_row} expected HTTP 200 actual HTTP 500 "
+                            f"code COMMON-005 handler=DATA_ACCESS diagnostic={{dataAccessSubtype="
+                            f"{data_access_subtype_match.group(1)}}}")
+                      break
+                  handler_match = handler_failure_pattern.fullmatch(message)
+                  if handler_match:
+                      print(f"matrix row {handler_row} expected HTTP 200 actual HTTP 500 "
+                            f"code COMMON-005 handler={handler_match.group('handler')}")
+                      break
+                  match = pattern.fullmatch(message)
+                  if match:
+                      print(f"matrix row {match.group('row')} expected HTTP "
+                            f"{match.group('expected')} actual HTTP {match.group('actual')} "
+                            f"code {match.group('code')}")
+                      break
+          except Exception:
+              pass
+          finally:
+              sys.exit(0)
+          PY

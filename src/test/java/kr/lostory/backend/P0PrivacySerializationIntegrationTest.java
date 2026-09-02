@@ -3,9 +3,11 @@ package kr.lostory.backend;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.math.BigDecimal;
+import java.net.URI;
 import java.time.Instant;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import kr.lostory.backend.founditem.presentation.FoundItemSignedUrlResponse;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
@@ -27,6 +29,19 @@ class P0PrivacySerializationIntegrationTest {
 		assertThat(body.toString()).doesNotContain(
 				"objectKey", "storageKey", "mediaKey", "rawLabel", "confidence", "finderId",
 				"latitude", "longitude", "storageDescription", "accessKey", "secretKey");
+	}
+
+	@Test
+	void signedImageSerializationContainsOnlyAuthorizedResponseFields() throws Exception {
+		FoundItemSignedUrlResponse response = new FoundItemSignedUrlResponse(
+			URI.create("https://signed.example.test/private-image"),
+			Instant.parse("2026-08-27T00:05:00Z"));
+
+		JsonNode body = json.readTree(json.writeValueAsString(response));
+
+		assertThat(body.propertyNames()).containsExactlyInAnyOrder("url", "expiresAt");
+		assertThat(body.toString()).doesNotContain(
+			"objectKey", "storagePath", "storedFilename", "originalFilename", "contentType", "sizeBytes");
 	}
 
 	private record CandidateResponse(Instant lastMatchedAt, boolean candidatesStale, List<Candidate> data) {

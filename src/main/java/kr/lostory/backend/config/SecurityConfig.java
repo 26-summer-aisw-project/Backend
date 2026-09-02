@@ -11,8 +11,11 @@ import javax.crypto.spec.SecretKeySpec;
 import com.nimbusds.jose.jwk.source.ImmutableSecret;
 import com.nimbusds.jose.proc.SecurityContext;
 import jakarta.servlet.http.HttpServletResponse;
+import jakarta.servlet.http.HttpServletRequest;
 import kr.lostory.backend.common.exception.ErrorCode;
 import kr.lostory.backend.common.response.ErrorResponse;
+import kr.lostory.backend.user.domain.UserStatus;
+import kr.lostory.backend.user.repository.UserRepository;
 import org.springframework.boot.health.actuate.endpoint.HealthEndpoint;
 import org.springframework.boot.security.autoconfigure.actuate.web.servlet.EndpointRequest;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -40,6 +43,8 @@ import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.access.AccessDeniedHandler;
 import org.springframework.http.MediaType;
+import org.springframework.http.HttpMethod;
+import org.springframework.security.web.util.matcher.RegexRequestMatcher;
 import tools.jackson.databind.ObjectMapper;
 
 @Configuration
@@ -58,19 +63,20 @@ public class SecurityConfig {
 
 	@Bean
 	JwtDecoder jwtDecoder(SecretKey jwtSecretKey, JwtProperties properties,
-		OAuth2TokenValidator<Jwt> jwtRolesValidator) {
+		OAuth2TokenValidator<Jwt> jwtRolesValidator,
+		OAuth2TokenValidator<Jwt> jwtSubjectValidator) {
 		NimbusJwtDecoder decoder = NimbusJwtDecoder.withSecretKey(jwtSecretKey)
 			.macAlgorithm(MacAlgorithm.HS256)
 			.build();
 		decoder.setJwtValidator(new DelegatingOAuth2TokenValidator<>(
-			JwtValidators.createDefaultWithIssuer(properties.issuer()), jwtRolesValidator));
+			JwtValidators.createDefaultWithIssuer(properties.issuer()), jwtRolesValidator, jwtSubjectValidator));
 		return decoder;
 	}
 
 	@Bean
 	OAuth2TokenValidator<Jwt> jwtRolesValidator() {
 		OAuth2Error error = new OAuth2Error("invalid_token", "The roles claim is invalid.", null);
-		Set<String> allowedRoles = Set.of("USER", "ADMIN");
+		Set<String> allowedRoles = Set.of("USER", "ADMIN", "CENTER_MANAGER");
 		return jwt -> {
 			Object claim = jwt.getClaims().get("roles");
 			if (!(claim instanceof Collection<?> roles) || roles.isEmpty()
@@ -78,6 +84,22 @@ public class SecurityConfig {
 				return OAuth2TokenValidatorResult.failure(error);
 			}
 			return OAuth2TokenValidatorResult.success();
+		};
+	}
+
+	@Bean
+	OAuth2TokenValidator<Jwt> jwtSubjectValidator(UserRepository userRepository) {
+		OAuth2Error error = new OAuth2Error("invalid_token", "The subject is invalid.", null);
+		return jwt -> {
+			Long subject;
+			try {
+				subject = Long.valueOf(jwt.getSubject());
+			} catch (NumberFormatException exception) {
+				return OAuth2TokenValidatorResult.failure(error);
+			}
+			return userRepository.findByIdAndStatus(subject, UserStatus.ACTIVE).isPresent()
+				? OAuth2TokenValidatorResult.success()
+				: OAuth2TokenValidatorResult.failure(error);
 		};
 	}
 
@@ -120,7 +142,9 @@ public class SecurityConfig {
 			.sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
 			.authorizeHttpRequests((requests) -> requests
 				.requestMatchers(EndpointRequest.to(HealthEndpoint.class)).permitAll()
-				.requestMatchers("/api/v1/admin/**").hasRole("ADMIN")
+				.requestMatchers(SecurityConfig::isRetiredRoute).permitAll()
+				.requestMatchers(new RegexRequestMatcher(
+					"^/api/v1/partner-manager-activations/[^/]+$", HttpMethod.POST.name())).permitAll()
 				.requestMatchers(
 					"/api/v1/auth/signup",
 					"/api/v1/auth/login",
@@ -130,7 +154,13 @@ public class SecurityConfig {
 					"/v3/api-docs/**",
 					"/v3/api-docs.yaml")
 				.permitAll()
-				.anyRequest().authenticated())
+				.requestMatchers("/api/v1/admin/**").hasRole("ADMIN")
+				.requestMatchers("/api/v1/dashboard/**").hasRole("CENTER_MANAGER")
+				.requestMatchers(new RegexRequestMatcher(
+					"^/api/v1/found-items/[0-9]+/image$", HttpMethod.GET.name()))
+				.hasAnyRole("USER", "ADMIN", "CENTER_MANAGER")
+				.requestMatchers(HttpMethod.GET, "/api/v1/users/me").hasAnyRole("USER", "ADMIN", "CENTER_MANAGER")
+				.anyRequest().hasAnyRole("USER", "ADMIN"))
 			.exceptionHandling(exceptions -> exceptions
 				.authenticationEntryPoint(unauthorizedEntryPoint)
 				.accessDeniedHandler(accessDeniedHandler))
@@ -142,6 +172,16 @@ public class SecurityConfig {
 			.formLogin(AbstractHttpConfigurer::disable)
 			.logout(AbstractHttpConfigurer::disable);
 		return http.build();
+	}
+
+	private static boolean isRetiredRoute(HttpServletRequest request) {
+		String method = request.getMethod();
+		String path = request.getRequestURI();
+		return method.equals("POST") && path.equals("/api/v1/found-items")
+			|| (method.equals("GET") || method.equals("POST"))
+				&& path.matches("/api/v1/found-items/[0-9]+/images")
+			|| method.equals("GET") && path.equals("/api/v1/nearby-lost-centers")
+				&& request.getUserPrincipal() != null;
 	}
 
 	private static void writeError(HttpServletResponse response, ObjectMapper objectMapper, ErrorCode errorCode)
