@@ -41,6 +41,12 @@ ALTER TABLE found_items
                         AND handover_status = 'NONE'
                         AND handed_at IS NULL)
                     OR
+                    (status = 'EXPIRED'
+                        AND center_id IS NOT NULL
+                        AND legacy_handover_place_name IS NULL
+                        AND handover_status = 'NONE'
+                        AND handed_at IS NULL)
+                    OR
                     (status IN ('ACTIVE', 'EXPIRED', 'RETURNED')
                         AND center_id IS NOT NULL
                         AND legacy_handover_place_name IS NULL
